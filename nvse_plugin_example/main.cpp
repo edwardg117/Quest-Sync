@@ -15,7 +15,7 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-IDebugLog		gLog("nvse_plugin_example.log");
+IDebugLog		gLog("Quest_Sync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 
 NVSEMessagingInterface* g_messagingInterface{};
@@ -58,7 +58,13 @@ TCPClient client("", 0);
 
 std::string int_to_hex_string(int number);
 UInt32 g_previousQuestCount = 0;
-//struct
+struct q_qsync_states
+{
+	bool conn_ack_received = false;
+	bool game_loaded = false;
+
+};
+struct q_qsync_states g_qsync_states;
 std::list<TESQuest*> g_current_quest_list;
 enum class EFlagValue
 {
@@ -128,52 +134,54 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	switch (msg->type)
 	{
 	case NVSEMessagingInterface::kMessage_PostLoad:
-		Console_Print("Post Load - plugintest running");
+		_MESSAGE("Post Load - plugintest running");
 		//TCPClient client("127.0.0.1", 25575);
 
 		break;
 	case NVSEMessagingInterface::kMessage_ExitGame:
-		Console_Print("Exit Game - plugintest running");
+		_MESSAGE("Exit Game - plugintest running");
 		client.Cleanup();
 		break;
 	case NVSEMessagingInterface::kMessage_ExitToMainMenu:
-		Console_Print("Exit to main menu - plugintest running");
+		_MESSAGE("Exit to main menu - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_LoadGame:
-		Console_Print("Load game - plugintest running");
+		_MESSAGE("Load game - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_SaveGame:
-		Console_Print("Save game - plugintest running");
+		_MESSAGE("Save game - plugintest running");
 		break;
 #if EDITOR
 	case NVSEMessagingInterface::kMessage_ScriptEditorPrecompile: break;
 #endif
 	case NVSEMessagingInterface::kMessage_PreLoadGame:
-		Console_Print("Pre load game - plugintest running");
+		_MESSAGE("Pre load game - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_ExitGame_Console:
-		Console_Print("Exit Game - plugintest running");
+		_MESSAGE("Exit Game - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_PostLoadGame:
-		Console_Print("Post Load Game - plugintest running");
+		_MESSAGE("Post Load Game - plugintest running");
+		g_qsync_states.game_loaded = true;
 		break;
 	case NVSEMessagingInterface::kMessage_PostPostLoad:
-		Console_Print("Post Post Load - plugintest running");
+		_MESSAGE("Post Post Load - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_RuntimeScriptError: break;
 	case NVSEMessagingInterface::kMessage_DeleteGame: break;
 	case NVSEMessagingInterface::kMessage_RenameGame: break;
 	case NVSEMessagingInterface::kMessage_RenameNewGame: break;
 	case NVSEMessagingInterface::kMessage_NewGame:
-		Console_Print("New Game - plugintest running");
+		_MESSAGE("New Game - plugintest running");
+		g_qsync_states.game_loaded = true;
 		break;
 	case NVSEMessagingInterface::kMessage_DeleteGameName:
-		Console_Print("Delete Game Name - plugintest running");
+		_MESSAGE("Delete Game Name - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_RenameGameName: break;
 	case NVSEMessagingInterface::kMessage_RenameNewGameName: break;
 	case NVSEMessagingInterface::kMessage_DeferredInit:
-		Console_Print("DefferedInit - plugintest running");
+		_MESSAGE("DefferedInit - plugintest running");
 		/* {std::string gamePath = GetFalloutDirectory();
 		std::cout << "From the get direcroty thing: " << gamePath;
 		std::cout << "From the Interface: " << g_nvseInterface->GetRuntimeDirectory(); }*/
@@ -186,11 +194,12 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		client.Connect();
 		if (client.isConnected())
 		{
-			Console_Print("Conection Success!");
+			_MESSAGE("Conection Success!");
 		}
 		else
 		{
-			Console_Print("Unable to connect :(");
+			_MESSAGE("Unable to connect :(");
+			std::cout << WSAGetLastError() << std::endl;
 		}
 		break;
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
@@ -215,17 +224,25 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	{
 		//std::cout << "Received message, parsing!";
 		_MESSAGE("Received message, parsing!");
-		auto parsed_message = json::parse(message);
-		message_type m_type;
-		parsed_message["message_type"].get_to(m_type);
+		//auto parsed_message = json::parse(message);
+		//message_type m_type;
+		//parsed_message["message_type"].get_to(m_type);
+		QSyncMessage msg(message);
+		//msg.fromString(message);
 		// Switch message types from the server, full list in QsyncDefinitions
-		switch (m_type)
+		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded)
+		{
+			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as the game save hasn't loaded yet.");  break; } // Don't do anything other than a connection acknowledgement if these are true
+		}
+		switch (msg.type)
 		{
 		case message_type::CONNECTION_ACKNOWLEDGEMENT:
 		{
-			std::string message_contents;
-			parsed_message["message_contents"].get_to(message_contents);
-			Console_Print(message_contents.c_str());
+			//std::string message_contents;
+			//parsed_message["message_contents"].get_to(message_contents);
+			_MESSAGE("Server sent Connection Acknowledgement");
+			_MESSAGE("Message From Server: %s", msg.body.c_str());
+			g_qsync_states.conn_ack_received = true;
 
 			//g_dataInterface->
 			//_MESSAGE("Citing current player quests...");
@@ -238,8 +255,82 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 
 		}
 		break;
-		case message_type::UPDATE_QUEST: break;
-		case message_type::COMPLETE_QUEST: break;
+		case message_type::START_QUEST: 
+		{
+			_MESSAGE("Server wants me to start a new quest:");
+			auto quest_info = json::parse(msg.body);
+			//auto quest_info = json::parse(message.body);
+			//_MESSAGE(msg.body.c_str());
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			std::string Flags;
+			quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
+			std::string startquest = "StartQuest " + ID;
+			std::string setstage = "SetStage " + ID + " " + Stage;
+			//setstage += std::string(" ");
+			//setstage += quest_info["Stage"];
+			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+		}
+			break;
+		case message_type::UPDATE_QUEST: 
+		{
+			_MESSAGE("Server wants me to progress a quest:");
+			auto quest_info = json::parse(msg.body);
+			//SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			std::string Flags;
+			quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
+			std::string setstage = "SetStage " + ID + " " + Stage;
+			//setstage += std::string(" ");
+			//setstage += quest_info["Stage"];
+			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+		}
+		break;
+		case message_type::COMPLETE_QUEST: 
+		{
+			_MESSAGE("Server wants me to complete quest:");
+			auto quest_info = json::parse(msg.body);
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			std::string Flags;
+			quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
+			std::string complete = "CompleteQuest " + ID;
+			g_consoleInterface->RunScriptLine(complete.c_str(), nullptr);
+		}
+		break;
+		case message_type::FAIL_QUEST:
+		{
+			_MESSAGE("Server wants me to fail quest:");
+			auto quest_info = json::parse(msg.body);
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			std::string Flags;
+			quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
+			std::string fail = "FailQuest " + ID;
+			g_consoleInterface->RunScriptLine(fail.c_str(), nullptr);
+		}
+		break;
 		case message_type::CURRENT_QUESTS_COMPLETEION: break;
 		case message_type::ALL_QUEST_STATES: break;
 		case message_type::RESEND_CONN_ACK:
@@ -322,13 +413,14 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		}
 		break;
 		default:
-			Console_Print("Message Structure invalid!");
-			std::cout << "Message Structure is invalid!" << std::endl;
+			_MESSAGE("Message Structure invalid!");
 
 		}
 	}}
 
-	// 2. Do I look for quest updates?
+	if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded) { break; } // Don't do any of this if the game isn't ready
+
+	// 2. look for quest updates
 	{
 		//	2.1 Has the list of quests increased in count?
 		//_MESSAGE("Finished Tasks from the server, doing my own.");
@@ -337,8 +429,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		{
 			// There is a new quest started or a quest has been updated
 			// 2.1.1 Get latest addition/s
-			UInt32 num_new_quests = player->questObjectiveList.Count() - g_previousQuestCount;
-			auto iterator = player->questObjectiveList.Head();
+			UInt32 num_new_quests = player->questObjectiveList.Count() - g_previousQuestCount; // Unint because that's what .Count() returns, also never a negative number so why bother mnaking it signed?
+			auto iterator = player->questObjectiveList.Head(); // This is what I'll use to iterate through the list (sort of)
 			_MESSAGE("There's %i new entries in the pip-boy", num_new_quests);
 
 			//std::vector<TESQuest*> new_quest_list;
@@ -347,39 +439,91 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			//for (int current_new_quest = 0; current_new_quest < player->questObjectiveList.Count(); current_new_quest++) // Do ALL quest entries in the pip-boy
 			{
 				//2.1.2 Is this a new quest or an existing one that's now in progress? 
-				// std::to_string(qwest->currentStage) << "\n|ID| " << int_to_hex_string(qwest->refID) << "\n
-				TESQuest* new_quest = iterator->data->quest;
-
-				// Who should I write the info about?
+				TESQuest* new_quest = iterator->data->quest; // The quest attached to the current entry
+				UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
+				// Is this a new quest or an entry for an existing one?
 				bool is_actually_new = true;
 				for (auto existing_quest : g_current_quest_list)
 				//for(auto existing_quest : new_quest_list)
 				{
-					if (existing_quest->refID == new_quest->refID) { is_actually_new = false; break; }
+					if (existing_quest->refID == new_quest->refID) { is_actually_new = false; break; } // If reference ids match, it's the same! (duh)
 				}
+				// Create a pretty string to represent the flags "10001100"
 				std::string flagString = "";
 				std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
 				for (auto flag : quest_flags)
 				{
 					flagString += flag ? "1" : "0";
 				}
+				// Get the quest name as displayed in the pip-boy
+				std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
 
 				if (is_actually_new && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
 				{ 
 					// Quest was just added to the pip-boy
-					g_current_quest_list.push_back(new_quest); 
+					g_current_quest_list.push_back(new_quest); // Add to the list fo quests I'm monitoring for completeion
 					//new_quest_list.push_back(new_quest);
 
-					std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
-					_MESSAGE("New Quest '%s' '%s' stage: %s added! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(new_quest->currentStage).c_str(), flagString.c_str());
+					_MESSAGE("New Quest '%s' '%s' stage: %s added! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
 					//TODO Tell the server about this new quest
+					json quest_info =
+					{
+						{"ID", int_to_hex_string(new_quest->refID)},
+						{"Stage", std::to_string(stage)},
+						{"Name", quest_name},
+						{"Flags", flagString}
+					};
+
+					/*_MESSAGE("Stages:");
+					tList<TESQuest::StageInfo> stages = new_quest->stages;
+					auto stage = stages.Head();
+					do
+					{
+						UInt8 stageID = stage->data->stage;
+						UInt8 complete = stage->data->unk001;
+						//auto test = unsigned(stageID);
+						_MESSAGE("%i: %i", unsigned(stageID), unsigned(complete));
+					} while (stage = stage->next);
+
+					//new_quest->GetOb
+					_MESSAGE("objId: %i", unsigned(iterator->data->objectiveId));
+					_MESSAGE(iterator->data->displayText.CStr());
+					_MESSAGE ("%i", unsigned(iterator->data->status));
+					//iterator->data->targets;*/
+
+
+					QSyncMessage msg(message_type::NEW_QUEST, quest_info.dump());
+					client.send_message(msg.toString());
 				}
 				else if (is_quest_active(new_quest))
 				{
 					// Quest already exists in the pip-boy and has only updated
-					std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
-					_MESSAGE("Quest '%s' '%s' updated to stage: %s ! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(new_quest->currentStage).c_str(), flagString.c_str());
+					_MESSAGE("Quest '%s' '%s' updated to stage: %s ! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
 					// TODO Tell server that this quest updated
+					json quest_info =
+					{
+						{"ID", int_to_hex_string(new_quest->refID)},
+						{"Stage", std::to_string(stage)},
+						{"Name", quest_name},
+						{"Flags", flagString}
+					};
+					/*_MESSAGE("Stages:");
+					tList<TESQuest::StageInfo> stages = new_quest->stages;
+					auto stage = stages.Head();
+					do
+					{
+						UInt8 stageID = stage->data->stage;
+						UInt8 complete = stage->data->unk001;
+						//auto test = unsigned(stageID);
+						_MESSAGE("%i: %i", unsigned(stageID), unsigned(complete));
+					} while (stage = stage->next);
+
+					_MESSAGE("objId: %i", unsigned(iterator->data->objectiveId));
+					_MESSAGE(iterator->data->displayText.CStr());
+					_MESSAGE("%i", unsigned(iterator->data->status));*/
+
+					QSyncMessage msg(message_type::QUEST_UPDATED, quest_info.dump());
+					client.send_message(msg.toString());
 				}
 				/*else if (is_actually_new) // Add ALL quests to this list for testing purposes
 				{
@@ -388,22 +532,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				else
 				{
 					//_MESSAGE("!!!Sanity check: The following quest was just added to the quest list but is inactive.!!!");
-					std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
-					_MESSAGE("Quest '%s' '%s' stage: %s has appeared but is not active! %s This may not be an issue.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(new_quest->currentStage).c_str(), flagString.c_str());
+					_MESSAGE("Quest '%s' '%s' stage: %s has appeared but is not active! %s This may not be an issue.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
+					// Most likely this quest will be picked activated when it is next updated and I can add it then
 				}
-
-				/*std::cout << "New Quest '" << int_to_hex_string(new_quest->refID) << "' '" << (new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>") << "' has flag " << new_quest->flags << " and stage: " << std::to_string(new_quest->currentStage) << std::endl;
-				//_MESSAGE("HERE");
-				//_MESSAGE("New Quest '%s' '%s' has flag %i and stage: %s", int_to_hex_string(new_quest->refID), new_quest->GetFullName()->name.CStr(), (1 << new_quest->flags), std::to_string(new_quest->currentStage));
-				std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
-				std::cout << "Flags:" << std::endl;
-				//_MESSAGE("Flags:");
-				std::vector<std::string> flag_guesses = { "Active", "Completed", "Bit 3", "Bit 4", "Bit 5", "bit 6", "bit 7", "bit 8" };
-				for (int flag_num = 0; flag_num < quest_flags.size(); flag_num++)
-				{
-					std::cout << flag_num << ": " << quest_flags[flag_num] << " - " << flag_guesses[flag_num] << std::endl;
-					//_MESSAGE("%i: %i", flag_num, quest_flags[flag_num]);
-				}*/
 				iterator = iterator->next;
 			}
 			// TEMP display current quests being watched
@@ -449,13 +580,14 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				//}
 			}*/
 
-			g_previousQuestCount += num_new_quests;
-		
+			g_previousQuestCount += num_new_quests; // Update the number of quest objectives that were in the list on this run so I can compare to it next run
+			
+			//g_consoleInterface->RunScriptLine("GetQuestCompleted 10a214", nullptr);
 		}
 
 		// 3. Check for quest completions/failures? -- Create list of quests that are in progress
 		//	3.1 Check to see if the flag is no longer "Active"
-		if (g_current_quest_list.size())
+		if (g_current_quest_list.size()) // TODO check if it crashes when I remove this
 		{
 			auto active_quest_iterator = g_current_quest_list.begin();
 			while (active_quest_iterator != g_current_quest_list.end())
@@ -477,21 +609,46 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 					{
 						if (!is_quest_failed(quest))
 						{
-							//_MESSAGE("Quest Completed");
 							_MESSAGE("Quest '%s' '%s' Completed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
 							// TODO Tell server
+							json quest_info =
+							{
+								{"ID", int_to_hex_string(quest->refID)},
+								{"Stage", std::to_string(quest->currentStage)},
+								{"Name", quest_name},
+								{"Flags", flagString}
+							};
+							QSyncMessage msg(message_type::QUEST_COMPLETED, quest_info.dump());
+							client.send_message(msg.toString());
 						}
 						else
 						{
-							//_MESSAGE("Quest Probably Failed!");
 							_MESSAGE("Quest '%s' '%s' Failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
 							// TODO Tell Server
+							json quest_info =
+							{
+								{"ID", int_to_hex_string(quest->refID)},
+								{"Stage", std::to_string(quest->currentStage)},
+								{"Name", quest_name},
+								{"Flags", flagString}
+							};
+							QSyncMessage msg(message_type::QUEST_FAILED, quest_info.dump());
+							client.send_message(msg.toString());
 						}
 					}
 					else
 					{
 						_MESSAGE("Quest '%s' '%s' Has been removed from the active list and is not completed or failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
 						// TODO Tell server? Does it really need to know about this? idk
+						json quest_info =
+						{
+							{"ID", int_to_hex_string(quest->refID)},
+							{"Stage", std::to_string(quest->currentStage)},
+							{"Name", quest_name},
+							{"Flags", flagString}
+						};
+						QSyncMessage msg(message_type::QUEST_INACTIVE, quest_info.dump());
+						client.send_message(msg.toString());
 					}
 					// Remove this quest from the list
 					g_current_quest_list.erase(active_quest_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
@@ -502,8 +659,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				}
 			}
 		}
-		//	3.1.1 If flag is complete
-		//	3.1.2 If flag is something else - Quest failed?
+
+		//g_consoleInterface->RunScriptLine("GetQuestCompleted 10a214", nullptr);
+		
 	}
 		break;
 	case NVSEMessagingInterface::kMessage_ScriptCompile: break;
@@ -528,8 +686,8 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
-	info->name = "MyFirstPlugin";
-	info->version = 2;
+	info->name = "QuestSyncPlugin";
+	info->version = 3;
 
 	// version checks
 	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)

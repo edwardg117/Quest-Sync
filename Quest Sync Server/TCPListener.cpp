@@ -10,8 +10,14 @@ SOCKET TCPListener::CreateSocket()
 		sockaddr_in hint;
 		hint.sin_family = AF_INET;
 		hint.sin_port = htons(m_port); // htons = Host TO Network Short
-		//hint.sin_addr.S_un.S_addr = INADDR_ANY; // Could also use inet_piton to... bind to loopback
-		inet_pton(AF_INET, m_ipAddress.c_str(), &hint.sin_addr); // Converts the string to a byte representation of the string in the desired format (AF_INET), also passed the address buffer to store it in
+		if (m_ipAddress == "")
+		{
+			hint.sin_addr.S_un.S_addr = INADDR_ANY;
+		}// Could also use inet_piton to... bind to loopback
+		else
+		{
+			inet_pton(AF_INET, m_ipAddress.c_str(), &hint.sin_addr);
+		} // Converts the string to a byte representation of the string in the desired format (AF_INET), also passed the address buffer to store it in
 
 		// Now bind to port and ip
 		int bindOk = bind(listener, (sockaddr*)&hint, sizeof(hint));
@@ -138,8 +144,22 @@ void TCPListener::Run()
 	FD_ZERO(&master); // Clear and initialize the set
 	FD_SET(listening, &master);
 
+	if (listening == INVALID_SOCKET)
+	{
+		std::cout << "Could not bind to socket!" << std::endl;
+		std::cout << WSAGetLastError() << std::endl;
+		return;
+	}
+
 	while (true)
 	{
+		if (listening == INVALID_SOCKET)
+		{
+			std::cout << "Could not bind to socket!" << std::endl;
+			std::cout << WSAGetLastError() << std::endl;
+			return;
+		}
+
 		fd_set copy = master; // Create a copy of the master set
 		int socketCount = select(0, &copy, nullptr, nullptr, nullptr);
 		for (int i = 0; i < socketCount; i++)

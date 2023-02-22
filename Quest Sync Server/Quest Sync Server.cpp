@@ -15,7 +15,10 @@ static inline void rtrim(std::string& s);
 static inline void trim(std::string& s);
 std::map<std::string, std::string> GetConfig();
 
-
+std::vector<std::string> g_questBlacklist = {
+        "104c1c",   // Ain't That a Kick in the Head
+        "10a214"          // Back in the Saddle
+};
 
 int main(int argc, char* argv[])
 {
@@ -37,6 +40,7 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "Config ready... " << std::endl;
+    //TCPListener server(ipAddress, port, Listener_MessageReceived); // Create server object
     TCPListener server(ipAddress, port, Listener_MessageReceived); // Create server object
     if (server.init())
     {
@@ -61,21 +65,81 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     //listener->Send_to_all(msg, &excludeVector);
 
     //listener->Send_to_all(msg);
-    auto parsed_message = json::parse(msg);
-    message_type m_type;
-    parsed_message["message_type"].get_to(m_type);
+    //auto parsed_message = json::parse(msg);
+    //message_type m_type;
+    //parsed_message["message_type"].get_to(m_type);
+    QSyncMessage message (msg);
 
-    switch (m_type)
+    switch (message.type)
     {
-    case message_type::QUEST_COMPLETED: break;
-    case message_type::QUEST_UPDATED: break;
+    case message_type::NEW_QUEST: 
+    {
+        auto quest_info = json::parse(message.body);
+        std::cout << message.body << std::endl;
+        std::cout << client << ": New Quest - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        message.type = message_type::START_QUEST;
+        std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
+        listener->Send_to_all(message.toString(), &excluded);
+    }
+    break;
+    case message_type::QUEST_UPDATED: 
+    {
+        auto quest_info = json::parse(message.body);
+        std::cout << client << ": Quest Updated - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        message.type = message_type::UPDATE_QUEST;
+        std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
+        listener->Send_to_all(message.toString(), &excluded);
+    }
+    break;
+    case message_type::QUEST_COMPLETED: 
+    {
+        auto quest_info = json::parse(message.body);
+        std::cout << client << ": Quest Completed - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        message.type = message_type::COMPLETE_QUEST;
+        std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
+        listener->Send_to_all(message.toString(), &excluded);
+    }
+    break;
+    case message_type::QUEST_FAILED: 
+    {
+        auto quest_info = json::parse(message.body);
+        std::cout << client << ": Quest Failed - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        message.type = message_type::FAIL_QUEST;
+        std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
+        listener->Send_to_all(message.toString(), &excluded);
+    }
+        break;
     case message_type::REQUEST_ALL_QUEST_STATES: break;
     case message_type::REQUEST_CURRENT_QUESTS_COMPLETION: break;
     case message_type::RESEND_CONN_ACK:
     {
         int itime;
         //std::string stime;
-        parsed_message["message_contents"].get_to(itime);
+        itime = stoi(message.body);
         //itime = stoi(stime);
         Sleep(itime * (1000));
         json json_message = {
@@ -83,6 +147,22 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
             {"message_contents", ""}
         };
         listener->Send_to_specific(client, json_message.dump());
+    }
+        break;
+    
+    case message_type::QUEST_INACTIVE: 
+    {
+        auto quest_info = json::parse(message.body);
+        std::cout << client << ": Quest Inactive - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        message.type = message_type::INACTIVE_QUEST;
+        std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
+        listener->Send_to_all(message.toString(), &excluded);
     }
         break;
     default: break;
