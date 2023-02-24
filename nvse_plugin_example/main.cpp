@@ -14,6 +14,7 @@
 #include "Quest Sync Server/QsyncDefinitions.h"
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
+#include <chrono>
 
 IDebugLog		gLog("Quest_Sync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
@@ -58,37 +59,23 @@ TCPClient client("", 0);
 
 std::string int_to_hex_string(int number);
 UInt32 g_previousQuestCount = 0;
+const long long g_wait_for_reconnect_seconds = 60;
+//auto g_last_connection_failure = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+//std::chrono::system_clock::time_point g_last_connection_failure = std::chrono::steady_clock::now();
+std::chrono::steady_clock::time_point g_last_connection_failure = std::chrono::steady_clock::now();
+
 struct q_qsync_states
 {
 	bool conn_ack_received = false;
 	bool game_loaded = false;
+	bool synced_with_server = false;
+	UInt8 sync_state = 0;
 
 };
 struct q_qsync_states g_qsync_states;
 std::list<TESQuest*> g_current_quest_list;
-enum class EFlagValue
-{
-	/*Flag1 = 1 << 0, // 1
-	Flag2 = 1 << 1, // 2
-	Flag3 = 1 << 2, // 4
-	Flag4 = 1 << 3, // 8
-	Flag5 = 1 << 4, // 16
-	Flag6 = 1 << 5, // 32
-	Flag7 = 1 << 6, // 64
-	Flag8 = 1 << 7  //128*/
-	Flag1 = 1,
-	Flag2 = 2,
-	Flag3 = 4,
-	Flag4 = 8,
-	Flag5 = 16,
-	Flag6 = 32,
-	Flag7 = 64,
-	Flag8 = 128
-};
-struct BitFlag
-{
-	uint8_t m_FlagValue = 0;
-};
+std::list<BGSQuestObjective*> g_current_objective_list;
+
 // Figure out what bits are set
 std::vector<bool> get_quest_flag_states(TESQuest* quest)
 {
@@ -126,6 +113,86 @@ bool is_quest_failed(TESQuest* quest)
 {
 	return (quest->flags & 64) == 64;
 }
+// Populates the current quest and objective lists. Removes all data stored in the lists before starting (essentially reseting it)
+void populate_current_quests()
+{
+	PlayerCharacter* player = PlayerCharacter::GetSingleton();
+	auto iterator = player->questObjectiveList.Head(); // This is what I'll use to iterate through the list (sort of)
+	_MESSAGE("Re-populating the current quest and objective lists...");
+	g_current_quest_list.clear(); // Just in case this is called while there's already stuff in it, this function shouldn't cause problems by resetting the positions of these things in any case
+	g_current_objective_list.clear();
+	std::list<TESQuest*> ignored_quests;
+
+	for (int current_new_quest = 0; current_new_quest < player->questObjectiveList.Count(); current_new_quest++) // Do ALL quest entries in the pip-boy
+	{
+		TESQuest* new_quest = iterator->data->quest; // The quest attached to the current entry
+		UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
+		// Is this a new quest or an entry for an existing one?
+		bool is_new_quest = true;
+		bool is_new_objective = false;
+		for (auto existing_quest : g_current_quest_list)
+		{
+			if (existing_quest->refID == new_quest->refID) { is_new_quest = false; break; } // If reference ids match, it's the same! (duh)
+		}
+		for (auto ignored_quest : ignored_quests) // Just to make logs look a bit nicer
+		{
+			if (ignored_quest->refID == new_quest->refID) { is_new_quest = false; break; } // If reference ids match, it's the same! (duh)
+		}
+		// Only check if this is a new objective if the status is not "Completed"
+		if ((iterator->data->status & 2) != 2) // 2 = 0b10, so this only checks the 2nd bit
+		{
+			is_new_objective = true;
+			for (auto existing_objective : g_current_objective_list)
+			{
+				if (existing_objective->objectiveId == stage) { is_new_objective = false; break; } // If onjective ids match, it's the same!
+			}
+		}
+		// Create a pretty string to represent the flags "10001100"
+		std::string flagString = "";
+		std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
+		for (auto flag : quest_flags)
+		{
+			flagString += flag ? "1" : "0";
+		}
+		// Get the quest name as displayed in the pip-boy
+		std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
+
+		if (is_new_quest && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
+		{
+			// Quest is active and hasn't been added before, add it now
+			g_current_quest_list.push_back(new_quest); // Add to the list fo quests I'm monitoring for completeion
+			_MESSAGE("Added Quest '%s' '%s' Flags: %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
+		}
+		else if(is_new_quest)
+		{
+			_MESSAGE("Quest '%s' '%s' Flags: %s not added.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
+			ignored_quests.push_back(new_quest);
+		}
+
+		if (is_new_objective && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
+		{
+			g_current_objective_list.push_back(iterator->data);
+			_MESSAGE("Stage is not marked as complete, adding to the current objective list.");
+		}
+		iterator = iterator->next;
+	}
+
+
+
+	g_previousQuestCount += player->questObjectiveList.Count(); // Update the number of quest objectives that were in the list on this run so I can compare to it next run
+}
+// Resets the state of all Quest Sync related variables to what they should be in the main menu
+void reset_qsync_states()
+{
+	g_previousQuestCount = 0;
+	//g_qsync_states.conn_ack_received = false;
+	g_qsync_states.game_loaded = false;
+	g_current_quest_list.clear();
+	g_current_objective_list.clear();
+	g_qsync_states.synced_with_server = false;
+	g_qsync_states.sync_state = 0;
+}
+
 //TCPClient client("", 0);
 // This is a message handler for nvse events
 // With this, plugins can listen to messages such as whenever the game loads
@@ -134,16 +201,20 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	switch (msg->type)
 	{
 	case NVSEMessagingInterface::kMessage_PostLoad:
-		_MESSAGE("Post Load - plugintest running");
+		//_MESSAGE("Post Load - plugintest running");
 		//TCPClient client("127.0.0.1", 25575);
 
 		break;
 	case NVSEMessagingInterface::kMessage_ExitGame:
 		_MESSAGE("Exit Game - plugintest running");
+		_MESSAGE("Exiting Game");
+		reset_qsync_states();
+		client.Disconnect();
 		client.Cleanup();
 		break;
 	case NVSEMessagingInterface::kMessage_ExitToMainMenu:
-		_MESSAGE("Exit to main menu - plugintest running");
+		_MESSAGE("Exiting to Main Menu");
+		reset_qsync_states();
 		break;
 	case NVSEMessagingInterface::kMessage_LoadGame:
 		_MESSAGE("Load game - plugintest running");
@@ -158,14 +229,18 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		_MESSAGE("Pre load game - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_ExitGame_Console:
-		_MESSAGE("Exit Game - plugintest running");
+		_MESSAGE("Exiting Game");
+		reset_qsync_states();
+		client.Disconnect();
+		client.Cleanup();
 		break;
 	case NVSEMessagingInterface::kMessage_PostLoadGame:
-		_MESSAGE("Post Load Game - plugintest running");
+		_MESSAGE("Game has been loaded (Save loaded)");
+		populate_current_quests();
 		g_qsync_states.game_loaded = true;
 		break;
 	case NVSEMessagingInterface::kMessage_PostPostLoad:
-		_MESSAGE("Post Post Load - plugintest running");
+		//_MESSAGE("Post Post Load - plugintest running");
 		break;
 	case NVSEMessagingInterface::kMessage_RuntimeScriptError: break;
 	case NVSEMessagingInterface::kMessage_DeleteGame: break;
@@ -173,6 +248,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	case NVSEMessagingInterface::kMessage_RenameNewGame: break;
 	case NVSEMessagingInterface::kMessage_NewGame:
 		_MESSAGE("New Game - plugintest running");
+		populate_current_quests();
 		g_qsync_states.game_loaded = true;
 		break;
 	case NVSEMessagingInterface::kMessage_DeleteGameName:
@@ -181,7 +257,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	case NVSEMessagingInterface::kMessage_RenameGameName: break;
 	case NVSEMessagingInterface::kMessage_RenameNewGameName: break;
 	case NVSEMessagingInterface::kMessage_DeferredInit:
-		_MESSAGE("DefferedInit - plugintest running");
+		_MESSAGE("Initialising TCP Client");
 		/* {std::string gamePath = GetFalloutDirectory();
 		std::cout << "From the get direcroty thing: " << gamePath;
 		std::cout << "From the Interface: " << g_nvseInterface->GetRuntimeDirectory(); }*/
@@ -195,31 +271,116 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		if (client.isConnected())
 		{
 			_MESSAGE("Conection Success!");
+			Console_Print("Connected to the Quest Sync server!");
 		}
 		else
 		{
 			_MESSAGE("Unable to connect :(");
+			Console_Print("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds);
 			std::cout << WSAGetLastError() << std::endl;
 		}
 		break;
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
 	case NVSEMessagingInterface::kMessage_MainGameLoop:
-		//Console_Print("Main Game Loop - plugintest running");
-		// {} to change scope
-		// 1. Get messages from server and apply actions
-		// 2. Do I look for quest updates?
-		//	2.1 Has the list of quests increased in count?
-		//		2.1.1 Get latest addition/s
-		//		2.1.2 Is this a new quest or an existing one that's now in progress? (flag=2)
-		//			If so add to current quest list
+		// Overview of flow:
 		// 
-		// 3. Check for quest completions/failures? -- Create list of quests that are in progress
-		//	3.1 Check to see if the flag is no longer '2'
-		//	3.1.1 If flag is 4 - Quest is complete
-		//	3.1.2 If flag is something else - Quest failed?
-
+		// Connected?
+		// No - Try connect again
+		// 
 		// 1. Get messages from server and apply actions
-	{std::list<std::string> messages = client.GetMessages();
+		//	1.1 Connection Acknowledgement?
+		//		1.1.1 Set Connection Acknowledgement to true
+		//	1.2 Start Quest?
+		//		1.2.1 Has this quest already been started?
+		//		1.2.2 (Yes) Do nothing
+		//		1.2.3 (No) Start the quest and set its stage
+		//	1.3 Update Quest?
+		//		1.3.1 Set Stage
+		//		1.3.2 Complete previous stage with SetObjectiveCompleted
+		//	1.4 Complete Quest?
+		//		1.4.1 Set Stage? Complete previous stage?
+		//		1.4.2 Complete quest
+		//	1.5 Fail Quest?
+		//		1.5.1 Fail Quest
+		//	1.6 All Quests - Sync Quests
+		//		1.6.1 Figure out what quests differ
+		//		1.6.2 Start missing quests
+		//		1.6.3 Set Relevant Stages
+		//		1.6.4 Complete quests
+		//		1.6.5 Fail Quests
+		//		1.6.6 Send the server any discrepancies (In case this client started a quest the server doesn't know about)
+		// 2. Look for Quest and Stage updates 
+		// TODO Should the server manage which stages have been completed or should individual stages be monitored?)
+		//	2.1 Has the list of quest objectives increased in count?
+		//		2.1.1 Get latest addition/s by looping from the head of the list, and moving down for the number of new entries
+		//		      as all the latest additions are insterted at the top of the list.
+		//		2.1.2 New (ACTIVE) quest that was just added? 
+		//			2.1.2.1 (Yes) Add to the currently monitored quest list
+		//			2.1.2.2 Tell the server about this new quest (with stage)
+		//		2.1.3 Existing (ACTIVE) quest that has a new entry?
+		//			2.1.3.1 (Yes) Tell the server about this new entry (stage)
+		//		If neither 2.1.2 or 2.1.3 then ignore this quest, but make a note of it in the logs because there might be something I have to do with them, idk  yet
+		// 
+		// 3. Check for quest completions/failures by - For every currently monitored quest:
+		//	3.1 Check if Active or Completed
+		//	(YES)
+		//		3.1.1 If Completed or Failed
+		//		(YES) 
+		//			3.1.1.1 If Completed - Tell Server
+		//			3.1.1.2 If Failed - Tell Server
+		//		(NO)
+		//			3.1.1.3 Else Quest was removed from active for some reason, will most likely get added again later
+		//		3.1.2 Remove Quest from Active list
+		//	(NO)
+		//	3.2 Move on, quest will still be monitored 
+		//		
+
+		if (!client.isConnected()) // Can't do anything if the server isn't connected
+		{
+			// uint64_t sec = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+			//auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+			std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+
+			if(std::chrono::duration_cast<std::chrono::seconds>(now - g_last_connection_failure).count() >= g_wait_for_reconnect_seconds)
+			{
+				// Try connect
+				//_MESSAGE("%llu is greater than %llu", std::chrono::duration_cast<std::chrono::seconds>(now - g_last_connection_failure).count(), g_wait_for_reconnect_seconds);
+				client.Cleanup(); // cleanup any garbage
+				client.init();
+				client.Connect();					// 4 294 967 295
+				//g_last_connection_failure = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+				g_last_connection_failure = std::chrono::steady_clock::now();
+
+				if (!client.isConnected()) { _MESSAGE("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds); Console_Print("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds); break; } // Can't do anything if not connected
+				else { _MESSAGE("Connected to the server!"); Console_Print("Connected to the Quest Sync server!"); }
+			}
+		}
+		if (!g_qsync_states.synced_with_server)
+		{
+			switch (g_qsync_states.sync_state)
+			{
+			case 0:
+			{
+				// No sync occured
+				QSyncMessage msg(message_type::REQUEST_CURRENT_QUESTS_COMPLETION, "");
+				client.send_message(msg.toString());
+				g_qsync_states.sync_state = 1;
+			}
+				break;
+			case 1:
+				// Sent message to server asking for active quests and objectives, wating...
+				break;
+			case 2:
+				// Server has replied with active quests and objectives
+				// This is done in 
+				message_type::CURRENT_QUESTS_COMPLETEION;
+				break;
+			default:
+				break;
+			}
+		}
+		// 1. Get messages from server and apply actions
+	{std::list<std::string> messages = client.GetMessages(); // TODO Maybe build a check to see if the server dies here to prevent crash?
 	for (auto message : messages)
 	{
 		//std::cout << "Received message, parsing!";
@@ -232,7 +393,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		// Switch message types from the server, full list in QsyncDefinitions
 		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded)
 		{
-			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as the game save hasn't loaded yet.");  break; } // Don't do anything other than a connection acknowledgement if these are true
+			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as a save hasn't been loaded yet.");  break; } // Don't do anything other than a connection acknowledgement if these are true
 		}
 		switch (msg.type)
 		{
@@ -331,7 +492,59 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			g_consoleInterface->RunScriptLine(fail.c_str(), nullptr);
 		}
 		break;
-		case message_type::CURRENT_QUESTS_COMPLETEION: break;
+		case message_type::CURRENT_QUESTS_COMPLETEION: 
+		{
+			// Server has sent me a list of all quests and objectives that I should have active
+			json quest_list = json::parse(msg.body);
+			std::string ID;
+			std::string Name;
+			std::list<std::string> stages;
+			std::vector<std::string> stage_list;
+			quest_list.get_to(stage_list);
+
+			for (auto quest_s : stage_list)
+			{
+				auto quest = json::parse(quest_s);
+				quest["ID"].get_to(ID);
+				quest["Name"].get_to(Name);
+				quest["Stages"].get_to(stages);
+
+				// 1. Check to see if this quest is already running as calling StartQuest on an already running quest will reset its vars
+				bool is_new_quest = true;
+				for (auto existing_quest : g_current_quest_list)
+				{
+					if (existing_quest->refID == stoi(ID)) { is_new_quest = false; break; }
+				}
+				// Add only new quests
+				if (is_new_quest)
+				{
+					std::string startquest = "StartQuest " + ID;
+					g_consoleInterface->RunScriptLine(startquest.c_str(), nullptr);
+					// Can't add to the global here, but it will be picked up in part 2 and added there.
+				}
+				// 2. Only add new objectives too, I don't think it matters in the game but extra entries in the global could suck
+				for(auto objective : stages)
+				{
+					bool is_new_objective = true;
+					for (auto existing_objective : g_current_objective_list)
+					{
+						if (existing_objective->objectiveId == stoi(objective)) { is_new_quest = false; break; }
+					}
+
+					if (is_new_objective)
+					{
+						std::string setstage = "SetStage " + ID + " " + objective;
+						g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+						// Also can't add this here but the next stage will get it
+					}
+				}
+			}
+
+			g_qsync_states.synced_with_server = true;
+			g_qsync_states.sync_state = 2;
+			
+		}
+			break;
 		case message_type::ALL_QUEST_STATES: break;
 		case message_type::RESEND_CONN_ACK:
 		{
@@ -443,6 +656,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
 				// Is this a new quest or an entry for an existing one?
 				bool is_actually_new = true;
+				bool is_new_objective = false;
 				for (auto existing_quest : g_current_quest_list)
 				//for(auto existing_quest : new_quest_list)
 				{
@@ -535,6 +749,23 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 					_MESSAGE("Quest '%s' '%s' stage: %s has appeared but is not active! %s This may not be an issue.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
 					// Most likely this quest will be picked activated when it is next updated and I can add it then
 				}
+
+				// Only check if this is a new objective if the status is not "Completed"
+				if ((iterator->data->status & 2) != 2) // 2 = 0b10, so this only checks the 2nd bit
+				{
+					is_new_objective = true;
+					for (auto existing_objective : g_current_objective_list)
+					{
+						if (existing_objective->objectiveId == stage) { is_new_objective = false; break; } // If onjective ids match, it's the same!
+					}
+				}
+
+				if (is_new_objective && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
+				{
+					g_current_objective_list.push_back(iterator->data);
+					_MESSAGE("Stage is not marked as complete, adding to the current objective list.");
+				}
+
 				iterator = iterator->next;
 			}
 			// TEMP display current quests being watched
@@ -660,6 +891,35 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			}
 		}
 
+		auto active_objective_iterator = g_current_objective_list.begin();
+		while (active_objective_iterator != g_current_objective_list.end())
+		{
+			BGSQuestObjective* objective = (*active_objective_iterator);
+			if ((objective->status & 2) == 2) // If the completed flag is set
+			{
+				UInt32 StageID = objective->objectiveId;
+				std::string QuestRefID = int_to_hex_string(objective->quest->refID);
+
+				_MESSAGE("Removing stage %i from %s as it is complete.", StageID, QuestRefID.c_str());
+				QSyncMessage msg;
+				msg.type = message_type::OBJECTIVE_COMPLETED;
+				json stage_info =
+				{
+					{"Stage", std::to_string(StageID)},
+					{"ID", QuestRefID}
+				};
+				msg.body = stage_info.dump();
+				client.send_message(msg.toString());
+
+				// Remove the objective from the list
+				g_current_objective_list.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
+			}
+			else
+			{
+				++active_objective_iterator;
+			}
+		}
+
 		//g_consoleInterface->RunScriptLine("GetQuestCompleted 10a214", nullptr);
 		
 	}
@@ -687,7 +947,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSyncPlugin";
-	info->version = 3;
+	info->version = 4;
 
 	// version checks
 	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)

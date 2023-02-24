@@ -20,6 +20,15 @@ std::vector<std::string> g_questBlacklist = {
         "10a214"          // Back in the Saddle
 };
 
+struct quest_and_objectives
+{
+    std::string ID;
+    std::string Name;
+    std::list<std::string> ActiveStages;
+};
+
+std::list<quest_and_objectives> g_active_quest_list;
+
 int main(int argc, char* argv[])
 {
     // Setup and config read
@@ -54,6 +63,16 @@ int main(int argc, char* argv[])
 
     return 0;
 }
+
+bool is_new_quest(std::string refID)
+{
+    bool result = true;
+    for (auto quest : g_active_quest_list)
+    {
+        if (quest.ID == refID) { result = false; break; } // If refID is the same, it's this quest!
+    }
+    return result;
+}
 // This function runs whenever a client sends a message to the server
 void Listener_MessageReceived(TCPListener* listener, int client, std::string msg)
 { // Do server logic here
@@ -75,7 +94,9 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     case message_type::NEW_QUEST: 
     {
         auto quest_info = json::parse(message.body);
-        std::cout << message.body << std::endl;
+        //std::cout << message.body << std::endl;
+        quest_and_objectives new_quest;
+        quest_info["ID"].get_to(new_quest.ID);
         std::cout << client << ": New Quest - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
         if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
@@ -83,6 +104,21 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
+        if (!is_new_quest(new_quest.ID))
+        {
+            std::cout << "Quest has already been received, ignoring" << std::endl;
+            break;
+        }
+
+        //quest_and_objectives new_quest;
+        //quest_info["ID"].get_to(new_quest.ID);
+        quest_info["Name"].get_to(new_quest.Name);
+        std::string stage;
+        quest_info["Stage"].get_to(stage);
+        new_quest.ActiveStages.push_back(stage);
+
+        g_active_quest_list.push_back(new_quest);
+
         message.type = message_type::START_QUEST;
         std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
         listener->Send_to_all(message.toString(), &excluded);
@@ -134,7 +170,26 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     }
         break;
     case message_type::REQUEST_ALL_QUEST_STATES: break;
-    case message_type::REQUEST_CURRENT_QUESTS_COMPLETION: break;
+    case message_type::REQUEST_CURRENT_QUESTS_COMPLETION: 
+    {
+        json current_quests_info = json::array();
+        for (auto quest : g_active_quest_list)
+        {
+            json quest_info =
+            {
+                {"ID", quest.ID},
+                {"Stages", quest.ActiveStages},
+                {"Name", quest.Name}
+            };
+            current_quests_info.push_back(quest_info.dump());
+        }
+
+        QSyncMessage message(CURRENT_QUESTS_COMPLETEION, current_quests_info.dump());
+
+        listener->Send_to_specific(client, message.toString());
+
+    }
+        break;
     case message_type::RESEND_CONN_ACK:
     {
         int itime;
@@ -163,6 +218,12 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
         message.type = message_type::INACTIVE_QUEST;
         std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
         listener->Send_to_all(message.toString(), &excluded);
+    }
+        break;
+    case message_type::OBJECTIVE_COMPLETED:
+    {
+        auto stage_info = json::parse(message.body);
+        std::cout << client << ": Objective " << stage_info["Stage"] << " completed for " << stage_info["ID"] << std::endl;
     }
         break;
     default: break;

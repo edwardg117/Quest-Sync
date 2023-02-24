@@ -14,15 +14,17 @@ enum message_type {
 	COMPLETE_QUEST,						// Server --> Client: Complete this quest
 	REQUEST_ALL_QUEST_STATES,			// Client --> Server: Send through the state of every single quest (probably won't use these)
 	ALL_QUEST_STATES,					// Server --> Client: Here's every single quest state
-	REQUEST_CURRENT_QUESTS_COMPLETION,	// Client --> Server: Send through every single quest that has been started or completed
-	CURRENT_QUESTS_COMPLETEION,			// Server --> Client: Here's every quest that's been started or completed
+	REQUEST_CURRENT_QUESTS_COMPLETION,	// Client --> Server: Send through every single quest that is in progress
+	CURRENT_QUESTS_COMPLETEION,			// Server --> Client: Here's every quest that's in progress
 	RESEND_CONN_ACK	,					// Client --> Server: Temp, thingy that tells the server to resend the connection acknowledgement in a bit.
 	NEW_QUEST,							// Client --> Server: I just aquired a new quest
 	QUEST_INACTIVE,						// Client --> Server: This quest was just removed from the active list but is not completed or failed
 	QUEST_FAILED,						// Client --> Server: I failed this quest
 	START_QUEST,						// Server --> Client: Start this quest at this stage
 	FAIL_QUEST,							// Server --> Client: Mark this quest as failed
-	INACTIVE_QUEST						// Server --> Client: This quest is now inactive, remove it if you haven't already
+	INACTIVE_QUEST,						// Server --> Client: This quest is now inactive, remove it if you haven't already
+	OBJECTIVE_COMPLETED,				// Client --> Server: I marked this objective as completed
+	COMPLETE_OBJECTIVE					// Server --> Client: Mark this objective as completed
 };
 
 class QSyncMessage
