@@ -172,6 +172,7 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     case message_type::REQUEST_ALL_QUEST_STATES: break;
     case message_type::REQUEST_CURRENT_QUESTS_COMPLETION: 
     {
+        std::cout << client << ": Wants currently active quests";
         json current_quests_info = json::array();
         for (auto quest : g_active_quest_list)
         {
@@ -224,6 +225,15 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     {
         auto stage_info = json::parse(message.body);
         std::cout << client << ": Objective " << stage_info["Stage"] << " completed for " << stage_info["ID"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), stage_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        message.type = message_type::COMPLETE_OBJECTIVE;
+        std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
+        listener->Send_to_all(message.toString(), &excluded);
     }
         break;
     default: break;

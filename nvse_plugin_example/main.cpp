@@ -70,7 +70,7 @@ struct q_qsync_states
 	bool game_loaded = false;
 	bool synced_with_server = false;
 	UInt8 sync_state = 0;
-
+	bool left_docs_house = false;
 };
 struct q_qsync_states g_qsync_states;
 std::list<TESQuest*> g_current_quest_list;
@@ -191,6 +191,7 @@ void reset_qsync_states()
 	g_current_objective_list.clear();
 	g_qsync_states.synced_with_server = false;
 	g_qsync_states.sync_state = 0;
+	g_qsync_states.left_docs_house = false;
 }
 
 //TCPClient client("", 0);
@@ -238,6 +239,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		_MESSAGE("Game has been loaded (Save loaded)");
 		populate_current_quests();
 		g_qsync_states.game_loaded = true;
+		g_qsync_states.left_docs_house = true;
+		_MESSAGE("Done!");
 		break;
 	case NVSEMessagingInterface::kMessage_PostPostLoad:
 		//_MESSAGE("Post Post Load - plugintest running");
@@ -355,16 +358,18 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				else { _MESSAGE("Connected to the server!"); Console_Print("Connected to the Quest Sync server!"); }
 			}
 		}
-		if (!g_qsync_states.synced_with_server)
+		if (!g_qsync_states.synced_with_server && g_qsync_states.left_docs_house)
 		{
 			switch (g_qsync_states.sync_state)
 			{
 			case 0:
 			{
 				// No sync occured
+				_MESSAGE("Client not synced with server, requesting list of active objectives from server.");
 				QSyncMessage msg(message_type::REQUEST_CURRENT_QUESTS_COMPLETION, "");
 				client.send_message(msg.toString());
 				g_qsync_states.sync_state = 1;
+				_MESSAGE("Sync State is now 1");
 			}
 				break;
 			case 1:
@@ -391,9 +396,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		QSyncMessage msg(message);
 		//msg.fromString(message);
 		// Switch message types from the server, full list in QsyncDefinitions
-		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded)
+		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded || !g_qsync_states.left_docs_house)
 		{
-			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as a save hasn't been loaded yet.");  break; } // Don't do anything other than a connection acknowledgement if these are true
+			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as a save hasn't been loaded yet. Or player hasn't completed 'Aint that a kick in the head'");  break; } // Don't do anything other than a connection acknowledgement if these are true
 		}
 		switch (msg.type)
 		{
@@ -458,6 +463,21 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
 		}
 		break;
+		case message_type::COMPLETE_OBJECTIVE:
+		{
+			_MESSAGE("Server has told me to complete a quest objective");
+			auto stage_info = json::parse(msg.body);
+			//SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
+			std::string ID;
+			stage_info["ID"].get_to(ID);
+			std::string Stage;
+			stage_info["Stage"].get_to(Stage);
+			_MESSAGE("%s %s", ID.c_str(), Stage.c_str());
+			std::string completeStage = "SetObjectiveCompleted " + ID + " " + Stage + " 1";
+			g_consoleInterface->RunScriptLine(completeStage.c_str(), nullptr);
+		}
+
+			break;
 		case message_type::COMPLETE_QUEST: 
 		{
 			_MESSAGE("Server wants me to complete quest:");
@@ -495,37 +515,59 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		case message_type::CURRENT_QUESTS_COMPLETEION: 
 		{
 			// Server has sent me a list of all quests and objectives that I should have active
+			_MESSAGE("Sever has replied with current active quests and objectives");
 			json quest_list = json::parse(msg.body);
+			_MESSAGE(msg.body.c_str());
 			std::string ID;
 			std::string Name;
+			json stage_test = json::array();
 			std::list<std::string> stages;
 			std::vector<std::string> stage_list;
 			quest_list.get_to(stage_list);
-
+			_MESSAGE("Going to loop through the list of quests and their objectives");
 			for (auto quest_s : stage_list)
 			{
+				_MESSAGE(quest_s.c_str());
 				auto quest = json::parse(quest_s);
+				_MESSAGE("Quest parsed...");
 				quest["ID"].get_to(ID);
 				quest["Name"].get_to(Name);
 				quest["Stages"].get_to(stages);
-
+				//quest["Stages"].get_to(stage_test);
+				//stage_test.get_to(stages);
+				_MESSAGE("Extracted info, checking against the current lists...");
 				// 1. Check to see if this quest is already running as calling StartQuest on an already running quest will reset its vars
 				bool is_new_quest = true;
 				for (auto existing_quest : g_current_quest_list)
 				{
-					if (existing_quest->refID == stoi(ID)) { is_new_quest = false; break; }
+					if (int_to_hex_string(existing_quest->refID) == ID) { is_new_quest = false; break; }
 				}
 				// Add only new quests
 				if (is_new_quest)
 				{
+					_MESSAGE("Starting quest: %s %s", ID.c_str(), Name.c_str());
 					std::string startquest = "StartQuest " + ID;
 					g_consoleInterface->RunScriptLine(startquest.c_str(), nullptr);
 					// Can't add to the global here, but it will be picked up in part 2 and added there.
-				}
+				} else { _MESSAGE("Already have quest: %s %s", ID.c_str(), Name.c_str()); }
 				// 2. Only add new objectives too, I don't think it matters in the game but extra entries in the global could suck
 				for(auto objective : stages)
+				//for(auto& j_objective : quest["Stages"])
+				//for(json::iterator it = quest["Stages"].begin(); it != quest["Stages"].end(); ++it)
 				{
 					bool is_new_objective = true;
+					//std::string objective = j_objective.dump();
+					//objective = objective.substr(1, objective.size() - 2); // Chomp both ends
+					
+					_MESSAGE(quest["Stages"].dump().c_str());
+					//_MESSAGE(j_objective.dump().c_str());
+
+					if (quest["Stages"].is_array()) { _MESSAGE("It's an array"); }
+					if (quest["Stages"].is_object()) { _MESSAGE("It's an object"); }
+					if (quest["Stages"].is_string()) { _MESSAGE("It's a string"); }
+
+					//if (j_objective.is_string()) { _MESSAGE("Objective is a string"); }
+
 					for (auto existing_objective : g_current_objective_list)
 					{
 						if (existing_objective->objectiveId == stoi(objective)) { is_new_quest = false; break; }
@@ -533,10 +575,11 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 
 					if (is_new_objective)
 					{
+						_MESSAGE("Adding stage %s to %s %s", objective.c_str(), ID.c_str(), Name.c_str());
 						std::string setstage = "SetStage " + ID + " " + objective;
 						g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
 						// Also can't add this here but the next stage will get it
-					}
+					} else { _MESSAGE("Already have stage %s for %s %s", objective.c_str(), ID.c_str(), Name.c_str()); }
 				}
 			}
 
@@ -851,6 +894,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 							};
 							QSyncMessage msg(message_type::QUEST_COMPLETED, quest_info.dump());
 							client.send_message(msg.toString());
+
+							// If a single quest is completed, they have probably left docs house
+							g_qsync_states.left_docs_house = true;
 						}
 						else
 						{
@@ -947,7 +993,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSyncPlugin";
-	info->version = 4;
+	info->version = 5;
 
 	// version checks
 	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)
