@@ -582,6 +582,42 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 					} else { _MESSAGE("Already have stage %s for %s %s", objective.c_str(), ID.c_str(), Name.c_str()); }
 				}
 			}
+			// Create a list of current quests and objectives
+
+
+			/*json current_quests_info = json::array();
+			for (auto quest : g_current_objective_list)
+			{
+				json quest_info =
+				{
+					{"ID", quest.ID},
+					{"Stages", quest.ActiveStages},
+					{"Name", quest.Name}
+				};
+				current_quests_info.push_back(quest_info.dump());
+			}*/
+
+			// This is super lazy, but I'm not that motivated rn
+			for (auto objective : g_current_objective_list)
+			{
+				std::string quest_name = objective->quest->GetFullName() ? objective->quest->GetFullName()->name.CStr() : "<no name>";
+				std::string flagString = "";
+				std::vector<bool> quest_flags = get_quest_flag_states(objective->quest);
+				for (auto flag : quest_flags)
+				{
+					flagString += flag ? "1" : "0";
+				}
+				json quest_info =
+				{
+					{"ID", int_to_hex_string(objective->quest->refID)},
+					{"Stage", std::to_string(objective->objectiveId)},
+					{"Name", quest_name},
+					{"Flags", flagString}
+				};
+
+				QSyncMessage msg(message_type::QUEST_UPDATED, quest_info.dump());
+				client.send_message(msg.toString());
+			}
 
 			g_qsync_states.synced_with_server = true;
 			g_qsync_states.sync_state = 2;
@@ -993,7 +1029,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSyncPlugin";
-	info->version = 5;
+	info->version = 6;
 
 	// version checks
 	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)

@@ -73,6 +73,19 @@ bool is_new_quest(std::string refID)
     }
     return result;
 }
+
+bool is_new_objective(std::string refID, std::string objectiveId)
+{
+    bool result = true;
+    for (auto quest : g_active_quest_list)
+    {
+        for (auto stage : quest.ActiveStages)
+        {
+            if (stage == objectiveId) { result = false; break; }
+        }
+    }
+    return result;
+}
 // This function runs whenever a client sends a message to the server
 void Listener_MessageReceived(TCPListener* listener, int client, std::string msg)
 { // Do server logic here
@@ -127,6 +140,14 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     case message_type::QUEST_UPDATED: 
     {
         auto quest_info = json::parse(message.body);
+        //quest_and_objectives new_quest;
+        //quest_info["ID"].get_to(new_quest.ID);
+        //quest_info["Stage"].get_to(new_quest.ActiveStages);
+        std::string ID;
+        std::string Stage;
+        quest_info["ID"].get_to(ID);
+        quest_info["Stage"].get_to(Stage);
+
         std::cout << client << ": Quest Updated - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
         if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
@@ -134,6 +155,33 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
+
+        if (!is_new_objective(ID, Stage))
+        {
+            std::cout << "Already received this stage, ignoring!" << std::endl;
+            break;
+        }
+
+        if (is_new_quest(ID))
+        {
+            std::cout << "Quest is actually new, adding!" << std::endl;
+            quest_and_objectives new_quest;
+            quest_info["ID"].get_to(new_quest.ID);
+            quest_info["Name"].get_to(new_quest.Name);
+            g_active_quest_list.push_back(new_quest);
+        }
+
+        //auto quest_ittr = g_active_quest_list.begin();
+        for (auto quest_ittr = g_active_quest_list.begin(); quest_ittr != g_active_quest_list.end(); ++quest_ittr)
+        {
+            if (quest_ittr->ID == ID)
+            {
+                // Add
+                quest_ittr->ActiveStages.push_back(Stage);
+                break;
+            }// Else nothing
+        }
+
         message.type = message_type::UPDATE_QUEST;
         std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
         listener->Send_to_all(message.toString(), &excluded);
@@ -172,7 +220,7 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     case message_type::REQUEST_ALL_QUEST_STATES: break;
     case message_type::REQUEST_CURRENT_QUESTS_COMPLETION: 
     {
-        std::cout << client << ": Wants currently active quests";
+        std::cout << client << ": Wants currently active quests" << std::endl;
         json current_quests_info = json::array();
         for (auto quest : g_active_quest_list)
         {
@@ -231,9 +279,36 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
+
+        // TODO remove quest from the active list
+
         message.type = message_type::COMPLETE_OBJECTIVE;
         std::vector<int> excluded = { client }; // Don't tell the one who told me about the update to update
         listener->Send_to_all(message.toString(), &excluded);
+    }
+        break;
+    case message_type::ACTIVE_QUESTS:
+        // Client sent a list of their active quests, compare
+    {
+
+
+        /*auto quest_info = json::parse(message.body);
+        //std::cout << message.body << std::endl;
+        quest_and_objectives new_quest;
+        quest_info["ID"].get_to(new_quest.ID);
+        std::cout << client << ": New Quest - " << quest_info["ID"] << " " << quest_info["Name"] << " " << quest_info["Stage"] << " " << quest_info["Flags"] << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest_info["ID"]) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        {
+            // Do nothing
+            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
+            break;
+        }
+        if (!is_new_quest(new_quest.ID))
+        {
+            std::cout << "Quest has already been received, ignoring" << std::endl;
+            break;
+        }*/
+        std::cout << "I haven't done this yet ;(" << std::endl;
     }
         break;
     default: break;

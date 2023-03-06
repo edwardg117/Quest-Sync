@@ -24,7 +24,9 @@ enum message_type {
 	FAIL_QUEST,							// Server --> Client: Mark this quest as failed
 	INACTIVE_QUEST,						// Server --> Client: This quest is now inactive, remove it if you haven't already
 	OBJECTIVE_COMPLETED,				// Client --> Server: I marked this objective as completed
-	COMPLETE_OBJECTIVE					// Server --> Client: Mark this objective as completed
+	COMPLETE_OBJECTIVE,					// Server --> Client: Mark this objective as completed
+	REQUEST_ACTIVE_QUESTS,				// Either --> Or: Send me your active list
+	ACTIVE_QUESTS						// Either --> Or: Here's my list of active stuff
 };
 
 class QSyncMessage
