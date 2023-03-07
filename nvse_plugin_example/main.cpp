@@ -57,20 +57,27 @@ TCPClient client("", 0);
 //Credits: taken from JohnnyGuitarNVSE.
 #define REG_TYPED_CMD(name, type)	nvse->RegisterTypedCommand(&kCommandInfo_##name,kRetnType_##type)
 
+
+// Forward declarations of my functions
 std::string int_to_hex_string(int number);
+bool is_new_quest(std::string ID);
+bool is_new_quest(UInt32 refID);
+bool is_new_objective(std::string QuestID, std::string objectiveId);
+bool is_new_objective(UInt32 refID, UInt32 objectiveId);
+bool is_new_objective(BGSQuestObjective* Objective);
+void process_server_messages();
+void process_quest_updates();
+void check_quest_and_objective_completion();
 UInt32 g_previousQuestCount = 0;
 const long long g_wait_for_reconnect_seconds = 60;
-//auto g_last_connection_failure = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-//std::chrono::system_clock::time_point g_last_connection_failure = std::chrono::steady_clock::now();
 std::chrono::steady_clock::time_point g_last_connection_failure = std::chrono::steady_clock::now();
-
 struct q_qsync_states
 {
 	bool conn_ack_received = false;
 	bool game_loaded = false;
 	bool synced_with_server = false;
 	UInt8 sync_state = 0;
-	bool left_docs_house = false;
+	bool left_docs_house = false; // TODO make this a function that checks the oldest quest in the quest list
 };
 struct q_qsync_states g_qsync_states;
 std::list<TESQuest*> g_current_quest_list;
@@ -113,6 +120,11 @@ bool is_quest_failed(TESQuest* quest)
 {
 	return (quest->flags & 64) == 64;
 }
+// Returns if the objective is completed
+bool is_objective_completed(BGSQuestObjective* objective)
+{
+	return (objective->status & 2) == 2;
+}
 // Populates the current quest and objective lists. Removes all data stored in the lists before starting (essentially reseting it)
 void populate_current_quests()
 {
@@ -128,25 +140,12 @@ void populate_current_quests()
 		TESQuest* new_quest = iterator->data->quest; // The quest attached to the current entry
 		UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
 		// Is this a new quest or an entry for an existing one?
-		bool is_new_quest = true;
-		bool is_new_objective = false;
-		for (auto existing_quest : g_current_quest_list)
-		{
-			if (existing_quest->refID == new_quest->refID) { is_new_quest = false; break; } // If reference ids match, it's the same! (duh)
-		}
+		bool ignored = false;
 		for (auto ignored_quest : ignored_quests) // Just to make logs look a bit nicer
 		{
-			if (ignored_quest->refID == new_quest->refID) { is_new_quest = false; break; } // If reference ids match, it's the same! (duh)
+			if (ignored_quest->refID == new_quest->refID) { ignored = true; break; } // If reference ids match, it's the same! (duh)
 		}
-		// Only check if this is a new objective if the status is not "Completed"
-		if ((iterator->data->status & 2) != 2) // 2 = 0b10, so this only checks the 2nd bit
-		{
-			is_new_objective = true;
-			for (auto existing_objective : g_current_objective_list)
-			{
-				if (existing_objective->objectiveId == stage) { is_new_objective = false; break; } // If onjective ids match, it's the same!
-			}
-		}
+
 		// Create a pretty string to represent the flags "10001100"
 		std::string flagString = "";
 		std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
@@ -157,19 +156,19 @@ void populate_current_quests()
 		// Get the quest name as displayed in the pip-boy
 		std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
 
-		if (is_new_quest && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
+		if (is_new_quest(new_quest->refID) && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
 		{
 			// Quest is active and hasn't been added before, add it now
 			g_current_quest_list.push_back(new_quest); // Add to the list fo quests I'm monitoring for completeion
 			_MESSAGE("Added Quest '%s' '%s' Flags: %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
 		}
-		else if(is_new_quest)
+		else if(is_new_quest(new_quest->refID) && ignored)
 		{
 			_MESSAGE("Quest '%s' '%s' Flags: %s not added.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
 			ignored_quests.push_back(new_quest);
 		}
 
-		if (is_new_objective && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
+		if (is_new_objective(iterator->data) && !is_objective_completed(iterator->data) && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
 		{
 			g_current_objective_list.push_back(iterator->data);
 			_MESSAGE("Stage is not marked as complete, adding to the current objective list.");
@@ -378,639 +377,23 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			case 2:
 				// Server has replied with active quests and objectives
 				// This is done in 
-				message_type::CURRENT_QUESTS_COMPLETEION;
+				//message_type::CURRENT_QUESTS_COMPLETEION;
 				break;
 			default:
 				break;
 			}
 		}
 		// 1. Get messages from server and apply actions
-	{std::list<std::string> messages = client.GetMessages(); // TODO Maybe build a check to see if the server dies here to prevent crash?
-	for (auto message : messages)
-	{
-		//std::cout << "Received message, parsing!";
-		_MESSAGE("Received message, parsing!");
-		//auto parsed_message = json::parse(message);
-		//message_type m_type;
-		//parsed_message["message_type"].get_to(m_type);
-		QSyncMessage msg(message);
-		//msg.fromString(message);
-		// Switch message types from the server, full list in QsyncDefinitions
-		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded || !g_qsync_states.left_docs_house)
-		{
-			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as a save hasn't been loaded yet. Or player hasn't completed 'Aint that a kick in the head'");  break; } // Don't do anything other than a connection acknowledgement if these are true
-		}
-		switch (msg.type)
-		{
-		case message_type::CONNECTION_ACKNOWLEDGEMENT:
-		{
-			//std::string message_contents;
-			//parsed_message["message_contents"].get_to(message_contents);
-			_MESSAGE("Server sent Connection Acknowledgement");
-			_MESSAGE("Message From Server: %s", msg.body.c_str());
-			g_qsync_states.conn_ack_received = true;
-
-			//g_dataInterface->
-			//_MESSAGE("Citing current player quests...");
-			//std::cout << "Current Player Quests: " << PlayerCharacter::GetSingleton()->questObjectiveList.Count() << std::endl;
-			//json message = {
-			//	{"message_type", message_type::RESEND_CONN_ACK},
-			//	{"message_contents", 10}
-			//};
-			//client.send_message(message.dump());
-
-		}
-		break;
-		case message_type::START_QUEST: 
-		{
-			_MESSAGE("Server wants me to start a new quest:");
-			auto quest_info = json::parse(msg.body);
-			//auto quest_info = json::parse(message.body);
-			//_MESSAGE(msg.body.c_str());
-			std::string ID;
-			quest_info["ID"].get_to(ID);
-			std::string Name;
-			quest_info["Name"].get_to(Name);
-			std::string Stage;
-			quest_info["Stage"].get_to(Stage);
-			std::string Flags;
-			quest_info["Flags"].get_to(Flags);
-			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
-			std::string startquest = "StartQuest " + ID;
-			std::string setstage = "SetStage " + ID + " " + Stage;
-			//setstage += std::string(" ");
-			//setstage += quest_info["Stage"];
-			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
-		}
-			break;
-		case message_type::UPDATE_QUEST: 
-		{
-			_MESSAGE("Server wants me to progress a quest:");
-			auto quest_info = json::parse(msg.body);
-			//SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
-			std::string ID;
-			quest_info["ID"].get_to(ID);
-			std::string Name;
-			quest_info["Name"].get_to(Name);
-			std::string Stage;
-			quest_info["Stage"].get_to(Stage);
-			std::string Flags;
-			quest_info["Flags"].get_to(Flags);
-			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
-			std::string setstage = "SetStage " + ID + " " + Stage;
-			//setstage += std::string(" ");
-			//setstage += quest_info["Stage"];
-			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
-		}
-		break;
-		case message_type::COMPLETE_OBJECTIVE:
-		{
-			_MESSAGE("Server has told me to complete a quest objective");
-			auto stage_info = json::parse(msg.body);
-			//SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
-			std::string ID;
-			stage_info["ID"].get_to(ID);
-			std::string Stage;
-			stage_info["Stage"].get_to(Stage);
-			_MESSAGE("%s %s", ID.c_str(), Stage.c_str());
-			std::string completeStage = "SetObjectiveCompleted " + ID + " " + Stage + " 1";
-			g_consoleInterface->RunScriptLine(completeStage.c_str(), nullptr);
-		}
-
-			break;
-		case message_type::COMPLETE_QUEST: 
-		{
-			_MESSAGE("Server wants me to complete quest:");
-			auto quest_info = json::parse(msg.body);
-			std::string ID;
-			quest_info["ID"].get_to(ID);
-			std::string Name;
-			quest_info["Name"].get_to(Name);
-			std::string Stage;
-			quest_info["Stage"].get_to(Stage);
-			std::string Flags;
-			quest_info["Flags"].get_to(Flags);
-			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
-			std::string complete = "CompleteQuest " + ID;
-			g_consoleInterface->RunScriptLine(complete.c_str(), nullptr);
-		}
-		break;
-		case message_type::FAIL_QUEST:
-		{
-			_MESSAGE("Server wants me to fail quest:");
-			auto quest_info = json::parse(msg.body);
-			std::string ID;
-			quest_info["ID"].get_to(ID);
-			std::string Name;
-			quest_info["Name"].get_to(Name);
-			std::string Stage;
-			quest_info["Stage"].get_to(Stage);
-			std::string Flags;
-			quest_info["Flags"].get_to(Flags);
-			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
-			std::string fail = "FailQuest " + ID;
-			g_consoleInterface->RunScriptLine(fail.c_str(), nullptr);
-		}
-		break;
-		case message_type::CURRENT_QUESTS_COMPLETEION: 
-		{
-			// Server has sent me a list of all quests and objectives that I should have active
-			_MESSAGE("Sever has replied with current active quests and objectives");
-			json quest_list = json::parse(msg.body);
-			_MESSAGE(msg.body.c_str());
-			std::string ID;
-			std::string Name;
-			json stage_test = json::array();
-			std::list<std::string> stages;
-			std::vector<std::string> stage_list;
-			quest_list.get_to(stage_list);
-			_MESSAGE("Going to loop through the list of quests and their objectives");
-			for (auto quest_s : stage_list)
-			{
-				_MESSAGE(quest_s.c_str());
-				auto quest = json::parse(quest_s);
-				_MESSAGE("Quest parsed...");
-				quest["ID"].get_to(ID);
-				quest["Name"].get_to(Name);
-				quest["Stages"].get_to(stages);
-				//quest["Stages"].get_to(stage_test);
-				//stage_test.get_to(stages);
-				_MESSAGE("Extracted info, checking against the current lists...");
-				// 1. Check to see if this quest is already running as calling StartQuest on an already running quest will reset its vars
-				bool is_new_quest = true;
-				for (auto existing_quest : g_current_quest_list)
-				{
-					if (int_to_hex_string(existing_quest->refID) == ID) { is_new_quest = false; break; }
-				}
-				// Add only new quests
-				if (is_new_quest)
-				{
-					_MESSAGE("Starting quest: %s %s", ID.c_str(), Name.c_str());
-					std::string startquest = "StartQuest " + ID;
-					g_consoleInterface->RunScriptLine(startquest.c_str(), nullptr);
-					// Can't add to the global here, but it will be picked up in part 2 and added there.
-				} else { _MESSAGE("Already have quest: %s %s", ID.c_str(), Name.c_str()); }
-				// 2. Only add new objectives too, I don't think it matters in the game but extra entries in the global could suck
-				for(auto objective : stages)
-				//for(auto& j_objective : quest["Stages"])
-				//for(json::iterator it = quest["Stages"].begin(); it != quest["Stages"].end(); ++it)
-				{
-					bool is_new_objective = true;
-					//std::string objective = j_objective.dump();
-					//objective = objective.substr(1, objective.size() - 2); // Chomp both ends
-					
-					_MESSAGE(quest["Stages"].dump().c_str());
-					//_MESSAGE(j_objective.dump().c_str());
-
-					if (quest["Stages"].is_array()) { _MESSAGE("It's an array"); }
-					if (quest["Stages"].is_object()) { _MESSAGE("It's an object"); }
-					if (quest["Stages"].is_string()) { _MESSAGE("It's a string"); }
-
-					//if (j_objective.is_string()) { _MESSAGE("Objective is a string"); }
-
-					for (auto existing_objective : g_current_objective_list)
-					{
-						if (existing_objective->objectiveId == stoi(objective)) { is_new_quest = false; break; }
-					}
-
-					if (is_new_objective)
-					{
-						_MESSAGE("Adding stage %s to %s %s", objective.c_str(), ID.c_str(), Name.c_str());
-						std::string setstage = "SetStage " + ID + " " + objective;
-						g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
-						// Also can't add this here but the next stage will get it
-					} else { _MESSAGE("Already have stage %s for %s %s", objective.c_str(), ID.c_str(), Name.c_str()); }
-				}
-			}
-			// Create a list of current quests and objectives
-
-
-			/*json current_quests_info = json::array();
-			for (auto quest : g_current_objective_list)
-			{
-				json quest_info =
-				{
-					{"ID", quest.ID},
-					{"Stages", quest.ActiveStages},
-					{"Name", quest.Name}
-				};
-				current_quests_info.push_back(quest_info.dump());
-			}*/
-
-			// This is super lazy, but I'm not that motivated rn
-			for (auto objective : g_current_objective_list)
-			{
-				std::string quest_name = objective->quest->GetFullName() ? objective->quest->GetFullName()->name.CStr() : "<no name>";
-				std::string flagString = "";
-				std::vector<bool> quest_flags = get_quest_flag_states(objective->quest);
-				for (auto flag : quest_flags)
-				{
-					flagString += flag ? "1" : "0";
-				}
-				json quest_info =
-				{
-					{"ID", int_to_hex_string(objective->quest->refID)},
-					{"Stage", std::to_string(objective->objectiveId)},
-					{"Name", quest_name},
-					{"Flags", flagString}
-				};
-
-				QSyncMessage msg(message_type::QUEST_UPDATED, quest_info.dump());
-				client.send_message(msg.toString());
-			}
-
-			g_qsync_states.synced_with_server = true;
-			g_qsync_states.sync_state = 2;
-			
-		}
-			break;
-		case message_type::ALL_QUEST_STATES: break;
-		case message_type::RESEND_CONN_ACK:
-		{
-			//_MESSAGE("Citing current player quests 2...");
-			PlayerCharacter* player = PlayerCharacter::GetSingleton();
-			std::cout << "Current Player Quests: " << player->questObjectiveList.Count() << std::endl;
-			if (player->questObjectiveList.Count())
-			{
-				TESQuest* qwest;
-				//std::vector<TESQuest*> quests;
-				int i = 0;
-				auto iterator = player->questObjectiveList.Head();
-				do
-				{
-					/*iterator->data->objectiveId;
-
-					iterator->data->quest;
-					iterator->data->quest->currentStage;
-					iterator->data->quest->editorName;
-					iterator->data->quest->flags;
-					iterator->data->quest->fullName;
-
-					iterator->data->status;
-					iterator->data->targets;
-					iterator->data->eQObjStatus_completed;*/
-
-
-
-					//std::cout << iterator->data->quest->GetStringRepresentation() << std::endl;
-					// Convert refID to hex string
-					//std::stringstream stream;
-					//stream << std::hex << iterator->data->quest->refID;
-					//std::string refID_hex(stream.str());
-
-					//std::cout << int_to_hex_string(iterator->data->quest->currentStage) << " || " << int_to_hex_string(iterator->data->quest->refID) << " || " << int_to_hex_string(iterator->data->status) << " || " << int_to_hex_string(iterator->data->quest->flags) << std::endl;
-					//iterator->data->quest->
-					//if (int_to_hex_string(iterator->data->quest->refID) == "10a214")
-						if(true)
-					{
-						qwest = iterator->data->quest;
-						std::cout << qwest->GetStringRepresentation() << std::endl;
-						//std::cout << "|Stage| " << std::to_string(qwest->currentStage) << "\n|ID| " << int_to_hex_string(qwest->refID) << "\n|Flag| " << (1 << qwest->flags) << "\n|Repeats| " << std::endl;
-						//i++;
-						//int i = 0, j = 0, k = 0;
-						//std::cout << iterator->data->quest->GetStringRepresentation() << std::endl;
-						//std::cout << "|Stage| " << std::to_string(iterator->data->quest->currentStage) << " |ID| " << int_to_hex_string(iterator->data->quest->refID) << " |Flag| " << (1 << iterator->data->quest->flags) << std::endl;
-						//std::cout << "Stage Count: " << iterator->data->quest->stages.Count() << std::endl;
-						/*auto quest_itr = iterator->data->quest->stages.Head();
-						do
-						{
-							//std::cout << "StageData: " << quest_itr->data->stage << std::endl;
-							//if (quest_itr->data->stage == iterator->data->quest->currentStage) { std::cout << "Quest matches stage found at: " << i << std::endl; }
-							//std::cout << "Status: " << quest_itr->data->unk001 << std::endl;
-							//if (quest_itr->data->unk001 == true) { j++; }
-							//else { k++; }
-							//i++;
-						} while (quest_itr = quest_itr->next);
-						std::cout << "Stages Complete:   " << j << std::endl;
-						std::cout << "Stages Incomplete: " << k << std::endl;*/
-					}
-				} while (iterator = iterator->next);
-
-				/**
-				* Quest ends up added to the questObjectiveList every time it advances to a new stage but not when it gets completed (see repeats below)
-				* Quest stage and flag updates for all entries in the list, so only need to worry about looking at info about the quest once. All others can be ignored.
-				*/
-				//std::cout << qwest->GetStringRepresentation() << std::endl;
-				//std::cout << "|Stage| " << std::to_string(qwest->currentStage) << "\n|ID| " << int_to_hex_string(qwest->refID) << "\n|Flag| " << (1 << qwest->flags) << "\n|Repeats| " << i << std::endl;
-			}
-
-
-			//_MESSAGE("Building reply to server.");
-			json json_message = {
-				{"message_type", message_type::RESEND_CONN_ACK},
-				{"message_contents", 10}
-			};
-			//_MESSAGE("Sending reply to server.");
-			client.send_message(json_message.dump());
-		}
-		break;
-		default:
-			_MESSAGE("Message Structure invalid!");
-
-		}
-	}}
-
-	if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded) { break; } // Don't do any of this if the game isn't ready
-
-	// 2. look for quest updates
-	{
-		//	2.1 Has the list of quests increased in count?
-		//_MESSAGE("Finished Tasks from the server, doing my own.");
-		PlayerCharacter* player = PlayerCharacter::GetSingleton();
-		if (player->questObjectiveList.Count() > g_previousQuestCount)
-		{
-			// There is a new quest started or a quest has been updated
-			// 2.1.1 Get latest addition/s
-			UInt32 num_new_quests = player->questObjectiveList.Count() - g_previousQuestCount; // Unint because that's what .Count() returns, also never a negative number so why bother mnaking it signed?
-			auto iterator = player->questObjectiveList.Head(); // This is what I'll use to iterate through the list (sort of)
-			_MESSAGE("There's %i new entries in the pip-boy", num_new_quests);
-
-			//std::vector<TESQuest*> new_quest_list;
-
-			for (int current_new_quest = 0; current_new_quest < num_new_quests; current_new_quest++) // Do only new entries in the pip-boy
-			//for (int current_new_quest = 0; current_new_quest < player->questObjectiveList.Count(); current_new_quest++) // Do ALL quest entries in the pip-boy
-			{
-				//2.1.2 Is this a new quest or an existing one that's now in progress? 
-				TESQuest* new_quest = iterator->data->quest; // The quest attached to the current entry
-				UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
-				// Is this a new quest or an entry for an existing one?
-				bool is_actually_new = true;
-				bool is_new_objective = false;
-				for (auto existing_quest : g_current_quest_list)
-				//for(auto existing_quest : new_quest_list)
-				{
-					if (existing_quest->refID == new_quest->refID) { is_actually_new = false; break; } // If reference ids match, it's the same! (duh)
-				}
-				// Create a pretty string to represent the flags "10001100"
-				std::string flagString = "";
-				std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
-				for (auto flag : quest_flags)
-				{
-					flagString += flag ? "1" : "0";
-				}
-				// Get the quest name as displayed in the pip-boy
-				std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
-
-				if (is_actually_new && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
-				{ 
-					// Quest was just added to the pip-boy
-					g_current_quest_list.push_back(new_quest); // Add to the list fo quests I'm monitoring for completeion
-					//new_quest_list.push_back(new_quest);
-
-					_MESSAGE("New Quest '%s' '%s' stage: %s added! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
-					//TODO Tell the server about this new quest
-					json quest_info =
-					{
-						{"ID", int_to_hex_string(new_quest->refID)},
-						{"Stage", std::to_string(stage)},
-						{"Name", quest_name},
-						{"Flags", flagString}
-					};
-
-					/*_MESSAGE("Stages:");
-					tList<TESQuest::StageInfo> stages = new_quest->stages;
-					auto stage = stages.Head();
-					do
-					{
-						UInt8 stageID = stage->data->stage;
-						UInt8 complete = stage->data->unk001;
-						//auto test = unsigned(stageID);
-						_MESSAGE("%i: %i", unsigned(stageID), unsigned(complete));
-					} while (stage = stage->next);
-
-					//new_quest->GetOb
-					_MESSAGE("objId: %i", unsigned(iterator->data->objectiveId));
-					_MESSAGE(iterator->data->displayText.CStr());
-					_MESSAGE ("%i", unsigned(iterator->data->status));
-					//iterator->data->targets;*/
-
-
-					QSyncMessage msg(message_type::NEW_QUEST, quest_info.dump());
-					client.send_message(msg.toString());
-				}
-				else if (is_quest_active(new_quest))
-				{
-					// Quest already exists in the pip-boy and has only updated
-					_MESSAGE("Quest '%s' '%s' updated to stage: %s ! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
-					// TODO Tell server that this quest updated
-					json quest_info =
-					{
-						{"ID", int_to_hex_string(new_quest->refID)},
-						{"Stage", std::to_string(stage)},
-						{"Name", quest_name},
-						{"Flags", flagString}
-					};
-					/*_MESSAGE("Stages:");
-					tList<TESQuest::StageInfo> stages = new_quest->stages;
-					auto stage = stages.Head();
-					do
-					{
-						UInt8 stageID = stage->data->stage;
-						UInt8 complete = stage->data->unk001;
-						//auto test = unsigned(stageID);
-						_MESSAGE("%i: %i", unsigned(stageID), unsigned(complete));
-					} while (stage = stage->next);
-
-					_MESSAGE("objId: %i", unsigned(iterator->data->objectiveId));
-					_MESSAGE(iterator->data->displayText.CStr());
-					_MESSAGE("%i", unsigned(iterator->data->status));*/
-
-					QSyncMessage msg(message_type::QUEST_UPDATED, quest_info.dump());
-					client.send_message(msg.toString());
-				}
-				/*else if (is_actually_new) // Add ALL quests to this list for testing purposes
-				{
-					new_quest_list.push_back(new_quest);
-				}*/
-				else
-				{
-					//_MESSAGE("!!!Sanity check: The following quest was just added to the quest list but is inactive.!!!");
-					_MESSAGE("Quest '%s' '%s' stage: %s has appeared but is not active! %s This may not be an issue.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
-					// Most likely this quest will be picked activated when it is next updated and I can add it then
-				}
-
-				// Only check if this is a new objective if the status is not "Completed"
-				if ((iterator->data->status & 2) != 2) // 2 = 0b10, so this only checks the 2nd bit
-				{
-					is_new_objective = true;
-					for (auto existing_objective : g_current_objective_list)
-					{
-						if (existing_objective->objectiveId == stage) { is_new_objective = false; break; } // If onjective ids match, it's the same!
-					}
-				}
-
-				if (is_new_objective && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
-				{
-					g_current_objective_list.push_back(iterator->data);
-					_MESSAGE("Stage is not marked as complete, adding to the current objective list.");
-				}
-
-				iterator = iterator->next;
-			}
-			// TEMP display current quests being watched
-			if (false)
-			{
-				auto active_quest_iterator = g_current_quest_list.begin();
-				while (active_quest_iterator != g_current_quest_list.end())
-				{
-					TESQuest* quest = (*active_quest_iterator); // Doing this for readability sake
-					if (!is_quest_active(quest))
-					{
-						std::string quest_name = quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>";
-						_MESSAGE("Quest '%s' '%s' Inactive!", int_to_hex_string(quest->refID).c_str(), quest_name.c_str());
-					}
-					else
-					{
-						std::string quest_name = quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>";
-						_MESSAGE("Quest '%s' '%s' Currently Active!", int_to_hex_string(quest->refID).c_str(), quest_name.c_str());
-					}
-					++active_quest_iterator;
-				}
-			}
-
-			// Now that I have unique quests only I can print out all the info I want on them
-			/*std::cout << "Vector size: " << new_quest_list.size() << std::endl;
-			for (auto quest : new_quest_list)
-			{
-				std::string flagString = "";
-				std::vector<bool> quest_flags = get_quest_flag_states(quest);
-				for (auto flag : quest_flags)
-				{
-					flagString += flag ? "1" : "0";
-				}
-				std::cout << "'" << int_to_hex_string(quest->refID) << "' '" << (quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>") << " " << flagString << std::endl;
-				//std::vector<bool> quest_flags = get_quest_flag_states(quest);
-				//std::cout << "Flags:" << std::endl;
-
-				//std::vector<std::string> flag_guesses = { "Active", "Completed", "Bit 3", "Bit 4", "Bit 5", "bit 6", "bit 7", "bit 8" };
-				//for (int flag_num = 0; flag_num < quest_flags.size(); flag_num++)
-				//{
-				//	std::cout << flag_num << ": " << quest_flags[flag_num] << " - " << flag_guesses[flag_num] << std::endl;
-				//	//_MESSAGE("%i: %i", flag_num, quest_flags[flag_num]);
-				//}
-			}*/
-
-			g_previousQuestCount += num_new_quests; // Update the number of quest objectives that were in the list on this run so I can compare to it next run
-			
-			//g_consoleInterface->RunScriptLine("GetQuestCompleted 10a214", nullptr);
-		}
-
-		// 3. Check for quest completions/failures? -- Create list of quests that are in progress
-		//	3.1 Check to see if the flag is no longer "Active"
-		if (g_current_quest_list.size()) // TODO check if it crashes when I remove this
-		{
-			auto active_quest_iterator = g_current_quest_list.begin();
-			while (active_quest_iterator != g_current_quest_list.end())
-			{
-				TESQuest* quest = (*active_quest_iterator); // Doing this for readability sake
-				if (!is_quest_active(quest) || is_quest_complete(quest)) // Has the active flag been removed or the completed flag been set?
-				{
-					// Current quest is no longer active
-					// Was the quest completed or failed?
-					std::string quest_name = quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>";
-					std::string flagString = "";
-					std::vector<bool> quest_flags = get_quest_flag_states(quest);
-					for (auto flag : quest_flags)
-					{
-						flagString += flag ? "1" : "0";
-					}
-
-					if (is_quest_complete(quest) || is_quest_failed(quest)) // Has the quest been (completed or failed) or was the active flag just removed for some reason?
-					{
-						if (!is_quest_failed(quest))
-						{
-							_MESSAGE("Quest '%s' '%s' Completed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-							// TODO Tell server
-							json quest_info =
-							{
-								{"ID", int_to_hex_string(quest->refID)},
-								{"Stage", std::to_string(quest->currentStage)},
-								{"Name", quest_name},
-								{"Flags", flagString}
-							};
-							QSyncMessage msg(message_type::QUEST_COMPLETED, quest_info.dump());
-							client.send_message(msg.toString());
-
-							// If a single quest is completed, they have probably left docs house
-							g_qsync_states.left_docs_house = true;
-						}
-						else
-						{
-							_MESSAGE("Quest '%s' '%s' Failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-							// TODO Tell Server
-							json quest_info =
-							{
-								{"ID", int_to_hex_string(quest->refID)},
-								{"Stage", std::to_string(quest->currentStage)},
-								{"Name", quest_name},
-								{"Flags", flagString}
-							};
-							QSyncMessage msg(message_type::QUEST_FAILED, quest_info.dump());
-							client.send_message(msg.toString());
-						}
-					}
-					else
-					{
-						_MESSAGE("Quest '%s' '%s' Has been removed from the active list and is not completed or failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-						// TODO Tell server? Does it really need to know about this? idk
-						json quest_info =
-						{
-							{"ID", int_to_hex_string(quest->refID)},
-							{"Stage", std::to_string(quest->currentStage)},
-							{"Name", quest_name},
-							{"Flags", flagString}
-						};
-						QSyncMessage msg(message_type::QUEST_INACTIVE, quest_info.dump());
-						client.send_message(msg.toString());
-					}
-					// Remove this quest from the list
-					g_current_quest_list.erase(active_quest_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
-				}
-				else
-				{
-					++active_quest_iterator; // Move to the next node, this one is still active
-				}
-			}
-		}
-
-		auto active_objective_iterator = g_current_objective_list.begin();
-		while (active_objective_iterator != g_current_objective_list.end())
-		{
-			BGSQuestObjective* objective = (*active_objective_iterator);
-			if ((objective->status & 2) == 2) // If the completed flag is set
-			{
-				UInt32 StageID = objective->objectiveId;
-				std::string QuestRefID = int_to_hex_string(objective->quest->refID);
-
-				_MESSAGE("Removing stage %i from %s as it is complete.", StageID, QuestRefID.c_str());
-				QSyncMessage msg;
-				msg.type = message_type::OBJECTIVE_COMPLETED;
-				json stage_info =
-				{
-					{"Stage", std::to_string(StageID)},
-					{"ID", QuestRefID}
-				};
-				msg.body = stage_info.dump();
-				client.send_message(msg.toString());
-
-				// Remove the objective from the list
-				g_current_objective_list.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
-			}
-			else
-			{
-				++active_objective_iterator;
-			}
-		}
-
-		//g_consoleInterface->RunScriptLine("GetQuestCompleted 10a214", nullptr);
-		
-	}
+		process_server_messages();
+		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded) { break; } // Don't do any of this if the game isn't ready
+		// 2. look for quest updates
+		process_quest_updates();
+		// 3. Check for quest and objective completion
+		check_quest_and_objective_completion();
 		break;
 	case NVSEMessagingInterface::kMessage_ScriptCompile: break;
 	case NVSEMessagingInterface::kMessage_EventListDestroyed: break;
-	case NVSEMessagingInterface::kMessage_PostQueryPlugins: 
-		Console_Print("Post Query Plugins - plugintest running");
-		break;
+	case NVSEMessagingInterface::kMessage_PostQueryPlugins: break;
 	default: break;
 	}
 }
@@ -1029,7 +412,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSyncPlugin";
-	info->version = 6;
+	info->version = 7;
 
 	// version checks
 	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)
@@ -1147,4 +530,484 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 	/*2006* REG_TYPED_CMD(ExamplePlugin_ReturnArray, Array);*/
 	
 	return true;
+}
+
+bool is_new_quest(std::string ID) // Takes hex id for quest and checks to see if it's new
+{
+	bool is_new_quest = true;
+	for (auto existing_quest : g_current_quest_list)
+	{
+		if (int_to_hex_string(existing_quest->refID) == ID) { is_new_quest = false; break; }
+	}
+	return is_new_quest;
+}
+bool is_new_quest(UInt32 refID)
+{
+	bool is_new = true;
+	for (auto existing_quest : g_current_quest_list)
+	{
+		if (existing_quest->refID == refID) { is_new = false; break; } // If reference ids match, it's the same! (duh)
+	}
+	return is_new;
+}
+
+bool is_new_objective(std::string QuestID, std::string objectiveId)
+{
+	bool is_new_objective = true;
+	for (auto existing_objective : g_current_objective_list)
+	{
+		if (existing_objective->objectiveId == stoi(objectiveId) && int_to_hex_string(existing_objective->quest->refID) == QuestID) { is_new_objective = false; break; }
+	}
+	return is_new_objective;
+}
+bool is_new_objective(UInt32 refID, UInt32 objectiveId)
+{
+	bool is_new_objective = true;
+	for (auto existing_objective : g_current_objective_list)
+	{
+		if (existing_objective->objectiveId == objectiveId && existing_objective->quest->refID == refID) { is_new_objective = false; break; } // If objective ids match, it's the same!
+	}
+	return is_new_objective;
+}
+bool is_new_objective(BGSQuestObjective* Objective)
+{
+	bool is_new_objective = true;
+	UInt32 objectiveId = Objective->objectiveId;
+	UInt32 refID = Objective->quest->refID;
+	for (auto existing_objective : g_current_objective_list)
+	{
+		if (existing_objective->objectiveId == objectiveId && existing_objective->quest->refID == refID) { is_new_objective = false; break; } // If objective ids match, it's the same!
+	}
+	return is_new_objective;
+}
+void process_server_messages()
+{
+	// TODO Maybe build a check to see if the server dies here to prevent crash?
+	// TODO Remove sending/receiving quest flags in this function
+	std::list<std::string> messages = client.GetMessages();
+	for (auto message : messages)
+	{
+		_MESSAGE("Received message, parsing!");
+		QSyncMessage msg(message);
+		// Switch message types from the server, full list in QsyncDefinitions
+		if (!g_qsync_states.conn_ack_received || !g_qsync_states.game_loaded || !g_qsync_states.left_docs_house)
+		{
+			if (msg.type != message_type::CONNECTION_ACKNOWLEDGEMENT) { _MESSAGE("Ignored message from server as a save hasn't been loaded yet. Or player hasn't completed 'Aint that a kick in the head'");  break; } // Don't do anything other than a connection acknowledgement if these are true
+		}
+		switch (msg.type)
+		{
+		case message_type::CONNECTION_ACKNOWLEDGEMENT:
+		{
+			_MESSAGE("Server sent Connection Acknowledgement");
+			_MESSAGE("Message From Server: %s", msg.body.c_str());
+			g_qsync_states.conn_ack_received = true;
+		}
+		break;
+		case message_type::START_QUEST:
+		{
+			_MESSAGE("Server wants me to start a new quest:");
+			auto quest_info = json::parse(msg.body);
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			//std::string Flags;
+			//quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s", ID.c_str(), Name.c_str(), Stage.c_str());
+			// TODO investigate why this doesn't display the quest for specific quests
+			std::string startquest = "StartQuest " + ID;
+			std::string setstage = "SetStage " + ID + " " + Stage;
+			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+		}
+		break;
+		case message_type::UPDATE_QUEST:
+		{
+			_MESSAGE("Server wants me to progress a quest:");
+			auto quest_info = json::parse(msg.body);
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			//std::string Flags;
+			//quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s", ID.c_str(), Name.c_str(), Stage.c_str());
+			std::string setstage = "SetStage " + ID + " " + Stage;
+			// Updating a quest to the next stage usually makes it visible if it isn't already for some reason
+			g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+		}
+		break;
+		case message_type::COMPLETE_OBJECTIVE:
+		{
+			_MESSAGE("Server has told me to complete a quest objective");
+			auto stage_info = json::parse(msg.body);
+			//SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
+			std::string ID;
+			stage_info["ID"].get_to(ID);
+			std::string Stage;
+			stage_info["Stage"].get_to(Stage);
+			_MESSAGE("%s %s", ID.c_str(), Stage.c_str());
+			std::string completeStage = "SetObjectiveCompleted " + ID + " " + Stage + " 1";
+			g_consoleInterface->RunScriptLine(completeStage.c_str(), nullptr);
+			
+			// TODO figure out how much XP should be earned
+		}
+
+		break;
+		case message_type::COMPLETE_QUEST:
+		{
+			_MESSAGE("Server wants me to complete quest:");
+			auto quest_info = json::parse(msg.body);
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			std::string Flags;
+			quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
+			std::string complete = "CompleteQuest " + ID;
+			g_consoleInterface->RunScriptLine(complete.c_str(), nullptr);
+
+			// TODO figure out how much XP should be earned
+		}
+		break;
+		case message_type::FAIL_QUEST:
+		{
+			_MESSAGE("Server wants me to fail quest:");
+			auto quest_info = json::parse(msg.body);
+			std::string ID;
+			quest_info["ID"].get_to(ID);
+			std::string Name;
+			quest_info["Name"].get_to(Name);
+			std::string Stage;
+			quest_info["Stage"].get_to(Stage);
+			std::string Flags;
+			quest_info["Flags"].get_to(Flags);
+			_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
+			std::string fail = "FailQuest " + ID;
+			g_consoleInterface->RunScriptLine(fail.c_str(), nullptr);
+		}
+		break;
+		case message_type::CURRENT_QUESTS_COMPLETEION:
+		{
+			// Server has sent me a list of all quests and objectives that I should have active
+			_MESSAGE("Sever has replied with current active quests and objectives");
+			json quest_list = json::parse(msg.body);
+			_MESSAGE(msg.body.c_str());
+			std::string ID;
+			std::string Name;
+			json stage_test = json::array();
+			std::list<std::string> stages;
+			std::vector<std::string> stage_list;
+			quest_list.get_to(stage_list);
+			_MESSAGE("Going to loop through the list of quests and their objectives");
+			for (auto quest_s : stage_list)
+			{
+				_MESSAGE(quest_s.c_str());
+				auto quest = json::parse(quest_s);
+				_MESSAGE("Quest parsed...");
+				quest["ID"].get_to(ID);
+				quest["Name"].get_to(Name);
+				quest["Stages"].get_to(stages);
+
+				_MESSAGE("Extracted info, checking against the current lists...");
+				// 1. Check to see if this quest is already running as calling StartQuest on an already running quest will reset its vars
+				// Add only new quests
+				if (is_new_quest(ID))
+				{
+					_MESSAGE("Starting quest: %s %s", ID.c_str(), Name.c_str());
+					std::string startquest = "StartQuest " + ID;
+					g_consoleInterface->RunScriptLine(startquest.c_str(), nullptr);
+					// Can't add to the global here, but it will be picked up in part 2 and added there.
+				}
+				else { _MESSAGE("Already have quest: %s %s", ID.c_str(), Name.c_str()); }
+				// 2. Only add new objectives too, I don't think it matters in the game but extra entries in the global could suck
+				for (auto objective : stages)
+				{
+					if (is_new_objective(ID, objective))
+					{
+						_MESSAGE("Adding stage %s to %s %s", objective.c_str(), ID.c_str(), Name.c_str());
+						std::string setstage = "SetStage " + ID + " " + objective;
+						g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+						// Also can't add this here but the next stage will get it
+					}
+					else { _MESSAGE("Already have stage %s for %s %s", objective.c_str(), ID.c_str(), Name.c_str()); }
+				}
+			}
+			// Create a list of current quests and objectives
+			json current_quests = json::array();
+			for (auto objective : g_current_objective_list)
+			{
+				std::string quest_name = objective->quest->GetFullName() ? objective->quest->GetFullName()->name.CStr() : "<no name>";
+				std::string flagString = "";
+				std::vector<bool> quest_flags = get_quest_flag_states(objective->quest);
+				for (auto flag : quest_flags)
+				{
+					flagString += flag ? "1" : "0";
+				}
+				json quest_info =
+				{
+					{"ID", int_to_hex_string(objective->quest->refID)},
+					{"Stage", std::to_string(objective->objectiveId)},
+					{"Name", quest_name},
+					//{"Flags", flagString}
+				};
+				_MESSAGE("Telling the server about %s stage %s", quest_name.c_str(), std::to_string(objective->objectiveId).c_str());
+				current_quests.push_back(quest_info);
+			}
+			QSyncMessage msg(message_type::ACTIVE_QUESTS, current_quests.dump());
+			client.send_message(msg.toString());
+
+			// This is super lazy, also it doesn't work
+			/*for (auto objective : g_current_objective_list)
+			{
+				std::string quest_name = objective->quest->GetFullName() ? objective->quest->GetFullName()->name.CStr() : "<no name>";
+				std::string flagString = "";
+				std::vector<bool> quest_flags = get_quest_flag_states(objective->quest);
+				for (auto flag : quest_flags)
+				{
+					flagString += flag ? "1" : "0";
+				}
+				json quest_info =
+				{
+					{"ID", int_to_hex_string(objective->quest->refID)},
+					{"Stage", std::to_string(objective->objectiveId)},
+					{"Name", quest_name},
+					{"Flags", flagString}
+				};
+				_MESSAGE("Telling the server about %s stage %s", quest_name.c_str(), std::to_string(objective->objectiveId).c_str());
+				QSyncMessage msg(message_type::QUEST_UPDATED, quest_info.dump());
+				client.send_message(msg.toString());
+			}*/
+
+			g_qsync_states.synced_with_server = true;
+			g_qsync_states.sync_state = 2;
+
+		}
+		break;
+		case message_type::ALL_QUEST_STATES: break;
+		case message_type::RESEND_CONN_ACK: break;
+		default:
+			_MESSAGE("Invalid message type!");
+
+		}
+	}
+}
+
+void process_quest_updates()
+{
+	//	2.1 Has the list of quests increased in count?
+	PlayerCharacter* player = PlayerCharacter::GetSingleton();
+	if (player->questObjectiveList.Count() > g_previousQuestCount)
+	{
+		// There is a new quest started or a quest has been updated
+		// 2.1.1 Get latest addition/s
+		UInt32 num_new_quests = player->questObjectiveList.Count() - g_previousQuestCount; // Unint because that's what .Count() returns, also never a negative number so why bother mnaking it signed?
+		auto iterator = player->questObjectiveList.Head(); // This is what I'll use to iterate through the list (sort of)
+		_MESSAGE("There's %i new entries in the pip-boy", num_new_quests);
+
+		for (int current_new_quest = 0; current_new_quest < num_new_quests; current_new_quest++) // Do only new entries in the pip-boy
+		{
+			//2.1.2 Is this a new quest or an existing one that's now in progress? 
+			TESQuest* new_quest = iterator->data->quest; // The quest attached to the current entry
+			UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
+			// Create a pretty string to represent the flags "10001100"
+			std::string flagString = "";
+			std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
+			for (auto flag : quest_flags)
+			{
+				flagString += flag ? "1" : "0";
+			}
+			// Get the quest name as displayed in the pip-boy
+			std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
+
+			if (is_new_quest(new_quest->refID) && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
+			{
+				// Quest was just added to the pip-boy
+				g_current_quest_list.push_back(new_quest); // Add to the list fo quests I'm monitoring for completeion
+
+				_MESSAGE("New Quest '%s' '%s' stage: %s added! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
+				// Tell the server about this new quest
+				json quest_info =
+				{
+					{"ID", int_to_hex_string(new_quest->refID)},
+					{"Stage", std::to_string(stage)},
+					{"Name", quest_name},
+					{"Flags", flagString}
+				};
+				QSyncMessage msg(message_type::NEW_QUEST, quest_info.dump());
+				client.send_message(msg.toString());
+			}
+			else if (is_quest_active(new_quest))
+			{
+				// Quest already exists in the pip-boy and has only updated
+				_MESSAGE("Quest '%s' '%s' updated to stage: %s ! %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
+				// Tell server that this quest updated
+				json quest_info =
+				{
+					{"ID", int_to_hex_string(new_quest->refID)},
+					{"Stage", std::to_string(stage)},
+					{"Name", quest_name},
+					{"Flags", flagString}
+				};
+
+				QSyncMessage msg(message_type::QUEST_UPDATED, quest_info.dump());
+				client.send_message(msg.toString());
+			}
+			else
+			{
+				_MESSAGE("Quest '%s' '%s' stage: %s has appeared but is not active! %s This may not be an issue.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), std::to_string(stage).c_str(), flagString.c_str());
+				// Most likely this quest will be picked activated when it is next updated and I can add it then
+			}
+
+			BGSQuestObjective* objective = iterator->data;
+			if (is_new_objective(objective) && !is_objective_completed(objective) && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
+			{
+				g_current_objective_list.push_back(objective);
+				_MESSAGE("Stage is not marked as complete, adding to the current objective list.");
+			}
+
+			iterator = iterator->next;
+		}
+		// TEMP display current quests being watched
+		if (false)
+		{
+			auto active_quest_iterator = g_current_quest_list.begin();
+			while (active_quest_iterator != g_current_quest_list.end())
+			{
+				TESQuest* quest = (*active_quest_iterator); // Doing this for readability sake
+				if (!is_quest_active(quest))
+				{
+					std::string quest_name = quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>";
+					_MESSAGE("Quest '%s' '%s' Inactive!", int_to_hex_string(quest->refID).c_str(), quest_name.c_str());
+				}
+				else
+				{
+					std::string quest_name = quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>";
+					_MESSAGE("Quest '%s' '%s' Currently Active!", int_to_hex_string(quest->refID).c_str(), quest_name.c_str());
+				}
+				++active_quest_iterator;
+			}
+		}
+
+		g_previousQuestCount += num_new_quests; // Update the number of quest objectives that were in the list on this run so I can compare to it next run
+	}
+}
+
+void check_quest_and_objective_completion()
+{
+	// 3. Check for quest completions/failures? -- Create list of quests that are in progress
+	//	3.1 Check to see if the flag is no longer "Active"
+	if (g_current_quest_list.size()) // TODO check if it crashes when I remove this, or change to itterator like below
+	{
+		auto active_quest_iterator = g_current_quest_list.begin();
+		while (active_quest_iterator != g_current_quest_list.end())
+		{
+			TESQuest* quest = (*active_quest_iterator); // Doing this for readability sake
+			if (!is_quest_active(quest) || is_quest_complete(quest)) // Has the active flag been removed or the completed flag been set?
+			{
+				// Current quest is no longer active
+				// Was the quest completed or failed?
+				std::string quest_name = quest->GetFullName() ? quest->GetFullName()->name.CStr() : "<no name>";
+				std::string flagString = "";
+				std::vector<bool> quest_flags = get_quest_flag_states(quest);
+				for (auto flag : quest_flags)
+				{
+					flagString += flag ? "1" : "0";
+				}
+
+				if (is_quest_complete(quest) || is_quest_failed(quest)) // Has the quest been (completed or failed) or was the active flag just removed for some reason?
+				{
+					if (!is_quest_failed(quest))
+					{
+						_MESSAGE("Quest '%s' '%s' Completed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
+						// TODO Tell server
+						json quest_info =
+						{
+							{"ID", int_to_hex_string(quest->refID)},
+							{"Stage", std::to_string(quest->currentStage)},
+							{"Name", quest_name},
+							{"Flags", flagString}
+						};
+						QSyncMessage msg(message_type::QUEST_COMPLETED, quest_info.dump());
+						client.send_message(msg.toString());
+
+						// If a single quest is completed, they have probably left docs house
+						g_qsync_states.left_docs_house = true;
+					}
+					else
+					{
+						_MESSAGE("Quest '%s' '%s' Failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
+						// TODO Tell Server
+						json quest_info =
+						{
+							{"ID", int_to_hex_string(quest->refID)},
+							{"Stage", std::to_string(quest->currentStage)},
+							{"Name", quest_name},
+							{"Flags", flagString}
+						};
+						QSyncMessage msg(message_type::QUEST_FAILED, quest_info.dump());
+						client.send_message(msg.toString());
+					}
+				}
+				else
+				{
+					_MESSAGE("Quest '%s' '%s' Has been removed from the active list and is not completed or failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
+					// TODO Tell server? Does it really need to know about this? idk
+					json quest_info =
+					{
+						{"ID", int_to_hex_string(quest->refID)},
+						{"Stage", std::to_string(quest->currentStage)},
+						{"Name", quest_name},
+						{"Flags", flagString}
+					};
+					QSyncMessage msg(message_type::QUEST_INACTIVE, quest_info.dump());
+					client.send_message(msg.toString());
+				}
+				// Remove this quest from the list
+				g_current_quest_list.erase(active_quest_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
+			}
+			else
+			{
+				++active_quest_iterator; // Move to the next node, this one is still active
+			}
+		}
+	}
+
+	auto active_objective_iterator = g_current_objective_list.begin();
+	while (active_objective_iterator != g_current_objective_list.end())
+	{
+		BGSQuestObjective* objective = (*active_objective_iterator);
+		if ((objective->status & 2) == 2) // If the completed flag is set
+		{
+			UInt32 StageID = objective->objectiveId;
+			std::string QuestRefID = int_to_hex_string(objective->quest->refID);
+
+			_MESSAGE("Removing stage %i from %s as it is complete.", StageID, QuestRefID.c_str());
+			QSyncMessage msg;
+			msg.type = message_type::OBJECTIVE_COMPLETED;
+			json stage_info =
+			{
+				{"Stage", std::to_string(StageID)},
+				{"ID", QuestRefID}
+			};
+			msg.body = stage_info.dump();
+			client.send_message(msg.toString());
+
+			// Remove the objective from the list
+			g_current_objective_list.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
+		}
+		else
+		{
+			++active_objective_iterator;
+		}
+	}
+
+	//g_consoleInterface->RunScriptLine("GetQuestCompleted 10a214", nullptr);
+
 }
