@@ -312,7 +312,6 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		//		1.6.5 Fail Quests
 		//		1.6.6 Send the server any discrepancies (In case this client started a quest the server doesn't know about)
 		// 2. Look for Quest and Stage updates 
-		// TODO Should the server manage which stages have been completed or should individual stages be monitored?)
 		//	2.1 Has the list of quest objectives increased in count?
 		//		2.1.1 Get latest addition/s by looping from the head of the list, and moving down for the number of new entries
 		//		      as all the latest additions are insterted at the top of the list.
@@ -926,7 +925,6 @@ void check_quest_and_objective_completion()
 					if (!is_quest_failed(quest))
 					{
 						_MESSAGE("Quest '%s' '%s' Completed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-						// TODO Tell server
 						json quest_info =
 						{
 							{"ID", int_to_hex_string(quest->refID)},
@@ -943,7 +941,6 @@ void check_quest_and_objective_completion()
 					else
 					{
 						_MESSAGE("Quest '%s' '%s' Failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-						// TODO Tell Server
 						json quest_info =
 						{
 							{"ID", int_to_hex_string(quest->refID)},
@@ -958,7 +955,6 @@ void check_quest_and_objective_completion()
 				else
 				{
 					_MESSAGE("Quest '%s' '%s' Has been removed from the active list and is not completed or failed! %s", int_to_hex_string(quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-					// TODO Tell server? Does it really need to know about this? idk
 					json quest_info =
 					{
 						{"ID", int_to_hex_string(quest->refID)},

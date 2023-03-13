@@ -70,6 +70,7 @@
     </ClCompile>
     <ClCompile Include="TCPClient.cpp" />
     <ClCompile Include="filthy_ini.cpp" />
+    <ClCompile Include="QuestManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\nvse\nvse\GameAPI.h">
@@ -147,6 +148,7 @@
     <ClInclude Include="TCPClient.h" />
     <ClInclude Include="filthy_ini.h" />
     <ClInclude Include="..\Quest Sync Server\QsyncDefinitions.h" />
+    <ClInclude Include="QuestManager.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="exports.def" />

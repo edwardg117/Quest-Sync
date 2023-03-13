@@ -343,6 +343,7 @@
     </ClCompile>
     <ClCompile Include="filthy_ini.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="QuestManager.cpp" />
     <ClCompile Include="TCPClient.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -372,6 +373,7 @@
     <ClInclude Include="filthy_ini.h" />
     <ClInclude Include="fn_intro_to_script_functions.h" />
     <ClInclude Include="fn_typed_functions.h" />
+    <ClInclude Include="QuestManager.h" />
     <ClInclude Include="TCPClient.h" />
   </ItemGroup>
   <ItemGroup>

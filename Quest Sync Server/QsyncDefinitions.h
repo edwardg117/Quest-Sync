@@ -29,34 +29,53 @@ enum message_type {
 	ACTIVE_QUESTS						// Either --> Or: Here's my list of active stuff
 };
 
-class QSyncMessage
+class QSyncMsgBody
 {
 public:
+	QSyncMsgBody() {};
+
+	json body;
+	message_type type;
+};
+
+class QSyncMessage
+{
+private:
+	//std::vector<QSyncMsgBody> Body; // Messages the server should process
+	json Body = json::array();
+	UINT32 Size; // Number of elements in body
+public:
 	// Empty Constructor
-	QSyncMessage() {} // Empty Constructor
+	QSyncMessage() { Size = 0; } // Empty Constructor
 	// Build from a sent message
 	QSyncMessage(std::string msg) // Build from a sent message
 	{
 		fromString(msg);
 	}
-	// Build message to send
-	QSyncMessage(message_type type, std::string body) // Build message to send
-		: type(type), body(body) {}
-	std::string body;
-	message_type type;
+
+	void addMessage(QSyncMsgBody msg)
+	{
+		json message = {
+			{"Body", msg.body},
+			{"Type", msg.type}
+		};
+		
+		Body.push_back(message);
+	}
 
 	std::string toString()
 	{
 		json json_message = {
-				{"message_type", type},
-				{"message_contents", body}
+				{"Size", Size},
+				{"Contents", Body}
 		};
 		return json_message.dump();
 	}
 	void fromString(std::string msg)
 	{
 		auto parsed_message = json::parse(msg);
-		parsed_message["message_type"].get_to(type);
-		parsed_message["message_contents"].get_to(body);
+		parsed_message["Size"].get_to(Size);
+		parsed_message["Contents"].get_to(Body);
 	}
+
 };
