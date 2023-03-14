@@ -15,7 +15,7 @@ enum message_type {
 	REQUEST_ALL_QUEST_STATES,			// Client --> Server: Send through the state of every single quest (probably won't use these)
 	ALL_QUEST_STATES,					// Server --> Client: Here's every single quest state
 	REQUEST_CURRENT_QUESTS_COMPLETION,	// Client --> Server: Send through every single quest that is in progress
-	CURRENT_QUESTS_COMPLETEION,			// Server --> Client: Here's every quest that's in progress
+	CURRENT_ACTIVE_QUESTS,				// Server --> Client: Here's every quest that's in progress
 	RESEND_CONN_ACK	,					// Client --> Server: Temp, thingy that tells the server to resend the connection acknowledgement in a bit.
 	NEW_QUEST,							// Client --> Server: I just aquired a new quest
 	QUEST_INACTIVE,						// Client --> Server: This quest was just removed from the active list but is not completed or failed
@@ -26,16 +26,18 @@ enum message_type {
 	OBJECTIVE_COMPLETED,				// Client --> Server: I marked this objective as completed
 	COMPLETE_OBJECTIVE,					// Server --> Client: Mark this objective as completed
 	REQUEST_ACTIVE_QUESTS,				// Either --> Or: Send me your active list
-	ACTIVE_QUESTS						// Either --> Or: Here's my list of active stuff
+	ACTIVE_QUESTS,						// Either --> Or: Here's my list of active stuff
+	NONE								// Either --> Or: Message type not set
 };
 
 class QSyncMsgBody
 {
 public:
 	QSyncMsgBody() {};
+	QSyncMsgBody(message_type Type, json Body) : type(Type), body(Body) {};
 
 	json body;
-	message_type type;
+	message_type type = message_type::NONE;
 };
 
 class QSyncMessage
@@ -61,6 +63,15 @@ public:
 		};
 		
 		Body.push_back(message);
+	}
+	json getMessages()
+	{
+		return this->Body;
+	}
+
+	UINT32 getSize()
+	{
+		return this->Size;
 	}
 
 	std::string toString()

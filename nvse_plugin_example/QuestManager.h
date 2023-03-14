@@ -7,19 +7,24 @@
 
 #include "nvse/GameForms.h"
 #include "nvse/PluginAPI.h"
+#include "nvse/utility.h"
+#include "nvse/PluginAPI.h"
+#include "nvse/CommandTable.h"
+#include "nvse/GameAPI.h"
+#include "nvse/ParamInfos.h"
+#include "nvse/GameObjects.h"
+
 #include "TCPClient.h"
 #include "Quest Sync Server/QsyncDefinitions.h"
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
-
-NVSEConsoleInterface* g_consoleInterface{};
 
 class cQuest
 {
 public:
 	cQuest(TESQuest* Quest);
 	cQuest(BGSQuestObjective* Objective);
-	~cQuest();
+	//~cQuest();
 
 	UInt32 getID();
 	std::vector<BGSQuestObjective*> getObjectives();
@@ -43,14 +48,20 @@ class QuestManager
 {
 private:
 	std::vector<cQuest> AllQuests;
-	std::list<cQuest> ActiveQuests;
-	//std::list<BGSQuestObjective*> ActiveObjectives;
+	std::list<TESQuest*> ActiveQuests;
+	std::list<BGSQuestObjective*> ActiveObjectives;
 	UInt32 ObjectiveCount;
+	bool ConnAckReceived;
+	bool SyncedWithServer;
+	UInt8 SyncState;
 
 	std::string int_to_hex_string(int number);
 	//void Add(cQuest Quest);
-	void Add(BGSQuestObjective* Objective, std::vector<std::string>* MessageForServer);
-	void Add(std::string refID, std::string ObjectiveId);
+	void Add(BGSQuestObjective* Objective, QSyncMsgBody* MessageForServer);
+	void Add(std::string refID, NVSEConsoleInterface* g_consoleInterface);
+	void Add(std::string refID, std::string ObjectiveId, NVSEConsoleInterface* g_consoleInterface);
+	void removeActiveQuest(std::string refID);
+	void removeActiveObjective(std::string refID, std::string objectiveId);
 
 public:
 	QuestManager();
@@ -63,11 +74,15 @@ public:
 	bool hasStage(std::string QuestID, std::string objectiveId);
 	bool hasStage(UInt32 refID, UInt32 objectiveId);
 	bool hasStage(BGSQuestObjective* Objective);
+	bool completedIntro();
 	cQuest getcQuest(std::string refID);
 	cQuest getcQuest(BGSQuestObjective* Objective);
 	void reset();
-	void process(TCPClient client, tList<BGSQuestObjective>	questObjectiveList);
-
+	void process(TCPClient* client, tList<BGSQuestObjective>	questObjectiveList, NVSEConsoleInterface* g_consoleInterface);
+	bool isSyncedWithServer();
+	bool isConnectionAcknowledged();
+	UInt8 getSyncState();
+	void syncWithServer(TCPClient* client);
 };
 
 class QuestNotInManagerException : public std::exception {

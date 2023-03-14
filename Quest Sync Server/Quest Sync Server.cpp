@@ -236,7 +236,7 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
             current_quests_info.push_back(quest_info.dump());
         }
 
-        QSyncMessage message(CURRENT_QUESTS_COMPLETEION, current_quests_info.dump());
+        QSyncMessage message(CURRENT_ACTIVE_QUESTS, current_quests_info.dump());
 
         listener->Send_to_specific(client, message.toString());
 
