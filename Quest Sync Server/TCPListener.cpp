@@ -192,13 +192,14 @@ void TCPListener::Run()
 					std::cout << host << " connected on port " << ntohs(client_info.sin_port) << std::endl;
 				}
 				std::cout << "Client Connected: " << client << std::endl;
-				message_type e = CONNECTION_ACKNOWLEDGEMENT;
-				json message = {
-					{"message_type", e},
-					{"message_contents", "Welcome!"}
+				QSyncMessage message;
+				QSyncMsgBody body;
+				body.type = message_type::CONNECTION_ACKNOWLEDGEMENT;
+				json jbody = {
+					{"message", "Welcome!"}
 				};
-
-				Send_to_specific(client, message.dump());
+				body.body = jbody;
+				Send_to_specific(client, message.toString());
 			}
 			else
 			{

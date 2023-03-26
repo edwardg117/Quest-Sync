@@ -39,8 +39,8 @@ void QuestManager::Add(BGSQuestObjective* Objective, QSyncMsgBody* MessageForSer
 		// Quest is completely new
 		cQuest new_quest = cQuest(Objective);
 		AllQuests.push_back(new_quest);
-		ActiveQuests.push_back(Objective->quest);
-		ActiveObjectives.push_back(Objective);
+		if (new_quest.isActive()) { ActiveQuests.push_back(Objective->quest); }
+		if(!new_quest.isObjectiveCompleted(Objective)) { ActiveObjectives.push_back(Objective); }
 
 		ObjectiveCount++;
 		_MESSAGE("%s '%s' stage: %s added!", int_to_hex_string(new_quest.getID()).c_str(), new_quest.getName().c_str(), std::to_string(Objective->objectiveId).c_str());
@@ -63,7 +63,7 @@ void QuestManager::Add(BGSQuestObjective* Objective, QSyncMsgBody* MessageForSer
 		// Quest is already known, add stage
 		cQuest quest = getcQuest(Objective);
 		quest.addObjective(Objective);
-		ActiveObjectives.push_back(Objective);
+		if (!quest.isObjectiveCompleted(Objective)) { ActiveObjectives.push_back(Objective); }
 		ObjectiveCount++;
 		_MESSAGE("%s '%s' new stage: %s", int_to_hex_string(quest.getID()).c_str(), quest.getName().c_str(), std::to_string(Objective->objectiveId).c_str());
 		
@@ -301,6 +301,7 @@ void QuestManager::reset()
 {
 	AllQuests.clear();
 	ActiveQuests.clear();
+	ActiveObjectives.clear();
 	ObjectiveCount = 0;
 	ConnAckReceived = false;
 	SyncedWithServer = false;
@@ -309,8 +310,12 @@ void QuestManager::reset()
 
 bool QuestManager::completedIntro()
 {
-	cQuest AintThatAKickInTheHead = this->getcQuest("104c1c");
-	return AintThatAKickInTheHead.isComplete();
+	if(this->hasQuest("104c1c"))
+	{
+		cQuest AintThatAKickInTheHead = this->getcQuest("104c1c");
+		return AintThatAKickInTheHead.isComplete();
+	}
+	else { return false; }
 }
 
 bool QuestManager::isConnectionAcknowledged()
@@ -335,6 +340,29 @@ void QuestManager::syncWithServer(TCPClient* client)
 	message.addMessage(msgBody);
 	client->send_message(message.toString());
 	this->SyncState = 1;
+}
+
+void QuestManager::populate_current_quests(tList<BGSQuestObjective> questObjectiveList)
+{
+	auto iterator = questObjectiveList.Head(); // This is what I'll use to iterate through the list (sort of)
+	//auto iterator = std::make_reverse_iterator(questObjectiveList);
+	_MESSAGE("Re-populating the current quest and objective lists...");
+	AllQuests.clear(); // Just in case this is called while there's already stuff in it, this function shouldn't cause problems by resetting the positions of these things in any case
+	ActiveQuests.clear();
+	ActiveObjectives.clear();
+	ObjectiveCount = 0;
+	std::list<BGSQuestObjective*> reversed_list;
+
+	for (int current_new_quest = 0; current_new_quest < questObjectiveList.Count(); current_new_quest++) // Do ALL quest entries in the pip-boy
+	{
+		reversed_list.push_front(iterator->data);
+		iterator = iterator->next;
+	}
+
+	for (auto objective : reversed_list)
+	{
+		this->Add(objective, nullptr);
+	}
 }
 
 void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObjectiveList, NVSEConsoleInterface* g_consoleInterface)
@@ -583,12 +611,15 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 				std::string Name;
 				std::list<std::string> stages;
 				std::vector<std::string> stage_list;
-				quest_list.get_to(stage_list);
+				_MESSAGE("Expecting a crash here...");
+				//quest_list.get_to(stage_list);
+				_MESSAGE("%s", quest_list.dump().c_str());
 				_MESSAGE("Going to loop through the list of quests and their objectives");
-				for (auto quest_s : stage_list)
+				for (auto quest : quest_list)
 				{
-					_MESSAGE(quest_s.c_str());
-					auto quest = json::parse(quest_s);
+					//_MESSAGE(quest_s.c_str());
+					_MESSAGE("Or here???");
+					//auto quest = json::parse(quest_s);
 					_MESSAGE("Quest parsed...");
 					quest["ID"].get_to(ID);
 					quest["Name"].get_to(Name);
@@ -639,7 +670,9 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 
 	if (message_for_server.getSize() > 0) // If there's any messaged to send to the server, send em!
 	{
-		client->send_message(message_for_server.toString());
+		std::string a_test = message_for_server.toString();
+		_MESSAGE("Sending:\n%s", a_test);
+		client->send_message(a_test);
 	}
 }
 

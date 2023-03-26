@@ -63,6 +63,7 @@ public:
 		};
 		
 		Body.push_back(message);
+		this->Size++;
 	}
 	json getMessages()
 	{

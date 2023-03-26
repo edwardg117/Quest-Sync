@@ -78,11 +78,12 @@ public:
 	cQuest getcQuest(std::string refID);
 	cQuest getcQuest(BGSQuestObjective* Objective);
 	void reset();
-	void process(TCPClient* client, tList<BGSQuestObjective>	questObjectiveList, NVSEConsoleInterface* g_consoleInterface);
+	void process(TCPClient* client, tList<BGSQuestObjective> questObjectiveList, NVSEConsoleInterface* g_consoleInterface);
 	bool isSyncedWithServer();
 	bool isConnectionAcknowledged();
 	UInt8 getSyncState();
 	void syncWithServer(TCPClient* client);
+	void populate_current_quests(tList<BGSQuestObjective> questObjectiveList);
 };
 
 class QuestNotInManagerException : public std::exception {

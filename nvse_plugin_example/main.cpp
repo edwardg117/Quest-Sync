@@ -70,7 +70,6 @@ UInt32 g_previousQuestCount = 0;
 const long long g_wait_for_reconnect_seconds = 60;
 std::chrono::steady_clock::time_point g_last_connection_failure = std::chrono::steady_clock::now();
 
-struct q_qsync_states g_qsync_states;
 std::list<TESQuest*> g_current_quest_list;
 std::list<BGSQuestObjective*> g_current_objective_list;
 QuestManager g_QuestManager;
@@ -220,7 +219,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 	case NVSEMessagingInterface::kMessage_PostLoadGame:
 		_MESSAGE("Game has been loaded (Save loaded)");
-		populate_current_quests();
+		//populate_current_quests();
+		g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
 		_MESSAGE("Done!");
 		break;
 	case NVSEMessagingInterface::kMessage_PostPostLoad:
@@ -265,6 +265,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
 	case NVSEMessagingInterface::kMessage_MainGameLoop:
+		//_MESSAGE("Main loop");
 		// Overview of flow: (outdated, moved server message processing to last)
 		// 
 		// Connected?
@@ -369,7 +370,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSyncPlugin";
-	info->version = 7;
+	info->version = 8;
 
 	// version checks
 	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)
