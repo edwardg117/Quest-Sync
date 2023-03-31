@@ -27,7 +27,8 @@ enum message_type {
 	COMPLETE_OBJECTIVE,					// Server --> Client: Mark this objective as completed
 	REQUEST_ACTIVE_QUESTS,				// Either --> Or: Send me your active list
 	ACTIVE_QUESTS,						// Either --> Or: Here's my list of active stuff
-	NONE								// Either --> Or: Message type not set
+	NONE,								// Either --> Or: Message type not set
+	SHUTDOWN							// Interface --> Server: Stop oeprations
 };
 
 class QSyncMsgBody
