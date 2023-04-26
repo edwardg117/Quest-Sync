@@ -14,7 +14,8 @@ static inline void ltrim(std::string& s);
 static inline void rtrim(std::string& s);
 static inline void trim(std::string& s);
 std::map<std::string, std::string> GetConfig();
-void process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSyncMsgBody* replyClientBody);
+enum class serverAction;
+serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSyncMsgBody* replyClientBody);
 
 std::vector<std::string> g_questBlacklist = {
         "104c1c",   // Ain't That a Kick in the Head
@@ -30,7 +31,10 @@ struct quest_and_objectives
     bool Failed = false;
     std::vector<std::string> Stages;
 };
-
+enum class serverAction {
+    NONE,
+    SHUTDOWN
+};
 std::list<quest_and_objectives> g_quest_list;
 
 int main(int argc, char* argv[])
@@ -117,13 +121,24 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
     {
         QSyncMsgBody msgAllBody;
         QSyncMsgBody msgClientBody;
-        process_Message(client, instruction, &msgAllBody, &msgClientBody);
+        serverAction action = process_Message(client, instruction, &msgAllBody, &msgClientBody);
         if (msgAllBody.type != message_type::NONE) { replyALL.addMessage(msgAllBody); std::cout << "Have message for all..." << std::endl;
         }
         if (msgClientBody.type != message_type::NONE) { replyClient.addMessage(msgClientBody); std::cout << "Have message for this client!" << std::endl;
         }
+        // Actions server side?
+        switch (action)
+        {
+        case serverAction::NONE:
+            break;
+        case serverAction::SHUTDOWN:
+            std::cout << "Received shutdown command." << std::endl;
+            listener->Stop();
+            break;
+        default:
+            break;
+        }
     }
-    listener.Stop()
 
     if (replyALL.getSize() > 0)
     {
@@ -243,13 +258,14 @@ quest_and_objectives* getQuest(std::string refID)
     return &dummyQuest;
 }
 
-void process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSyncMsgBody* replyClientBody)
+serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSyncMsgBody* replyClientBody)
 {
     message_type type;
     json body = message["Body"];
     std::string ID;
     std::string Name;
     std::string Stage = "";
+    serverAction action = serverAction::NONE;
 
     message["Type"].get_to(type);
     if (body.contains("ID")) { body["ID"].get_to(ID); }
@@ -469,10 +485,12 @@ void process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSync
             }
         }
     }
-    case message_type::SHUTDOWN:
-        listener.
     break;
+    case message_type::SHUTDOWN:
+        action = serverAction::SHUTDOWN;
     break;
     default: break;
     }
+
+    return action;
 }

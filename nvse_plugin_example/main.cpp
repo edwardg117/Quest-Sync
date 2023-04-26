@@ -74,109 +74,7 @@ std::list<TESQuest*> g_current_quest_list;
 std::list<BGSQuestObjective*> g_current_objective_list;
 QuestManager g_QuestManager;
 
-// Figure out what bits are set
-std::vector<bool> get_quest_flag_states(TESQuest* quest)
-{
-	std::vector<bool> flag_states; // A vector of states for the quest flags
-	
-	// Perform a comparison using the AND operator to compare the bits
-	// 0000 0000 & 0000 0001 = false
-	// 0000 0001 & 0000 0001 = true
-	// 0010 0011 & 0000 0001 = true
 
-	flag_states.push_back((quest->flags & 1) == 1);		// Bit 1 - Active
-	flag_states.push_back((quest->flags & 2) == 2);		// Bit 2 - Completed
-	flag_states.push_back((quest->flags & 4) == 4);		// Bit 3
-	flag_states.push_back((quest->flags & 8) == 8);		// Bit 4
-	flag_states.push_back((quest->flags & 16) == 16);	// Bit 5
-	flag_states.push_back((quest->flags & 32) == 32);	// Bit 6 - Visible in pip-boy
-	flag_states.push_back((quest->flags & 64) == 64);	// Bit 7 - Failed
-	flag_states.push_back((quest->flags & 128) == 128);	// Bit 8
-
-	return flag_states;
-}
-
-// Returns if the "Active" bit is set or not
-bool is_quest_active(TESQuest* quest)
-{
-	return (quest->flags & 1) == 1;
-}
-// Returns if the "Completed" bit is set
-bool is_quest_complete(TESQuest* quest)
-{
-	return (quest->flags & 2) == 2;
-}
-// Returns if the quest was failed
-bool is_quest_failed(TESQuest* quest)
-{
-	return (quest->flags & 64) == 64;
-}
-// Returns if the objective is completed
-bool is_objective_completed(BGSQuestObjective* objective)
-{
-	return (objective->status & 2) == 2;
-}
-// Populates the current quest and objective lists. Removes all data stored in the lists before starting (essentially reseting it)
-// TODO, remove in favour of QuestManager method
-[[DEPRECATED]]
-void populate_current_quests()
-{
-	PlayerCharacter* player = PlayerCharacter::GetSingleton();
-	auto iterator = player->questObjectiveList.Head(); // This is what I'll use to iterate through the list (sort of)
-	_MESSAGE("Re-populating the current quest and objective lists...");
-	g_current_quest_list.clear(); // Just in case this is called while there's already stuff in it, this function shouldn't cause problems by resetting the positions of these things in any case
-	g_current_objective_list.clear();
-	std::list<TESQuest*> ignored_quests;
-
-	for (int current_new_quest = 0; current_new_quest < player->questObjectiveList.Count(); current_new_quest++) // Do ALL quest entries in the pip-boy
-	{
-		TESQuest* new_quest = iterator->data->quest; // The quest attached to the current entry
-		UInt32 stage = iterator->data->objectiveId; // The quest stage as it appears on the fallout wiki
-		// Is this a new quest or an entry for an existing one?
-		bool ignored = false;
-		for (auto ignored_quest : ignored_quests) // Just to make logs look a bit nicer
-		{
-			if (ignored_quest->refID == new_quest->refID) { ignored = true; break; } // If reference ids match, it's the same! (duh)
-		}
-
-		// Create a pretty string to represent the flags "10001100"
-		std::string flagString = "";
-		std::vector<bool> quest_flags = get_quest_flag_states(new_quest);
-		for (auto flag : quest_flags)
-		{
-			flagString += flag ? "1" : "0";
-		}
-		// Get the quest name as displayed in the pip-boy
-		std::string quest_name = new_quest->GetFullName() ? new_quest->GetFullName()->name.CStr() : "<no name>";
-
-		if (is_new_quest(new_quest->refID) && is_quest_active(new_quest) && !is_quest_complete(new_quest)) // Quest can remain active when complete
-		{
-			// Quest is active and hasn't been added before, add it now
-			g_current_quest_list.push_back(new_quest); // Add to the list fo quests I'm monitoring for completeion
-			_MESSAGE("Added Quest '%s' '%s' Flags: %s", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-		}
-		else if(is_new_quest(new_quest->refID) && ignored)
-		{
-			_MESSAGE("Quest '%s' '%s' Flags: %s not added.", int_to_hex_string(new_quest->refID).c_str(), quest_name.c_str(), flagString.c_str());
-			ignored_quests.push_back(new_quest);
-		}
-
-		if (is_new_objective(iterator->data) && !is_objective_completed(iterator->data) && !is_quest_complete(new_quest) && !is_quest_failed(new_quest)) // If a quest is failed, the objective is not marked as completed. Check for that too. It might be possible for a quest to be inactive but receive a new objective before it activates
-		{
-			g_current_objective_list.push_back(iterator->data);
-			_MESSAGE("Stage is not marked as complete, adding to the current objective list.");
-		}
-		iterator = iterator->next;
-	}
-
-
-
-	g_previousQuestCount += player->questObjectiveList.Count(); // Update the number of quest objectives that were in the list on this run so I can compare to it next run
-}
-// Resets the state of all Quest Sync related variables to what they should be in the main menu
-
-
-//TCPClient client("", 0);
 // This is a message handler for nvse events
 // With this, plugins can listen to messages such as whenever the game loads
 void MessageHandler(NVSEMessagingInterface::Message* msg)
@@ -232,7 +130,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	case NVSEMessagingInterface::kMessage_RenameNewGame: break;
 	case NVSEMessagingInterface::kMessage_NewGame:
 		_MESSAGE("New Game - plugintest running");
-		populate_current_quests();
+		//populate_current_quests();
+		g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
 		break;
 	case NVSEMessagingInterface::kMessage_DeleteGameName:
 		_MESSAGE("Delete Game Name - plugintest running");
@@ -335,7 +234,14 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				g_last_connection_failure = std::chrono::steady_clock::now();
 
 				if (!client.isConnected()) { _MESSAGE("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds); Console_Print("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds); break; } // Can't do anything if not connected
-				else { _MESSAGE("Connected to the server!"); Console_Print("Connected to the Quest Sync server!"); }
+				else 
+				{ 
+					_MESSAGE("Connected to the server!");
+					Console_Print("Connected to the Quest Sync server!"); 
+					g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
+					std::string message = "MessageEx \"Connected to Quest Sync Serevr!\"";
+					g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+				}
 			}
 		}
 		if (!g_QuestManager.isSyncedWithServer() && g_QuestManager.completedIntro())
@@ -343,9 +249,11 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			if (g_QuestManager.getSyncState() == 0) { g_QuestManager.syncWithServer(&client); }
 
 		}
+		//else
 		{
 			PlayerCharacter* player = PlayerCharacter::GetSingleton();
 			g_QuestManager.process(&client, player->questObjectiveList, g_consoleInterface);
+			//g_last_connection_failure = std::chrono::steady_clock::now();
 		}
 
 		break;

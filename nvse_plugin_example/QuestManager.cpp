@@ -492,6 +492,18 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 	for (auto message : messages)
 	{
 		_MESSAGE("Received %i message(s), parsing!", messages.size());
+		//_MESSAGE("Size: %i", message.size());
+		if (message.size() == 0)
+		{
+			// Server has closed the connection
+			_MESSAGE("Server has closed the socket!");
+			Console_Print("Disconnected from Quest Sync Server");
+			std::string message = "MessageEx \"Disconnected from Quest Sync Server! Will attempt to reconnect.\"";
+			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+			client->Disconnect();
+			this->reset();
+			break;
+		}
 		QSyncMessage msg(message);
 		for (auto instruction : msg.getMessages())
 		{
@@ -668,7 +680,7 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 	}
 
 
-	if (message_for_server.getSize() > 0) // If there's any messaged to send to the server, send em!
+	if (message_for_server.getSize() > 0 && client->isConnected()) // If there's any messaged to send to the server, send em!
 	{
 		std::string a_test = message_for_server.toString();
 		_MESSAGE("Sending:\n%s", a_test);

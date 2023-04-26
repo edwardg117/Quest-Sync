@@ -52,7 +52,7 @@ SOCKET TCPListener::WaitForConnection(SOCKET listening)
 TCPListener::TCPListener(std::string ipAddress, int port, MessageReceivedHandler handler)
 	: m_ipAddress(ipAddress), m_port(port), MessageReceived(handler)
 {
-
+	this->running = false;
 }
 
 TCPListener::~TCPListener()
@@ -150,8 +150,9 @@ void TCPListener::Run()
 		std::cout << WSAGetLastError() << std::endl;
 		return;
 	}
+	this->running = true;
 
-	while (true)
+	while (this->running)
 	{
 		if (listening == INVALID_SOCKET)
 		{
@@ -238,8 +239,11 @@ void TCPListener::Run()
 void TCPListener::Stop()
 {
 	// Message all clients to disconnect
+	//Send_to_all();
 	// Stop Listening
+	this->running = false;
 	// Run Cleanup
+	this->Cleanup();
 }
 
 void TCPListener::Cleanup()
