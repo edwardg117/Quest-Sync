@@ -41,6 +41,7 @@ private:
 	fd_set master; // Master set of connections
 	//std::vector<SOCKET> master; //Master list of connections
 	std::vector<Client> conected_clients;
+	bool running;
 
 	// Create a socket
 	SOCKET CreateSocket();
