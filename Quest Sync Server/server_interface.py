@@ -110,12 +110,10 @@ class Application:
             # Create a button with the command label
             if(command != "Get Quest States" and command != "Quit"):
                 button = tk.Button(side_panel, text=command, command=lambda c=command, f=fields: self.create_input_window(c, f))
-            elif(command == "Get Quest States"):
-                button = tk.Button(side_panel, text=command, command=lambda c="Not Implemented!": print(c))
-            elif(command == "Shutdown Server"):
-                button = tk.Button(side_panel, text=command, command=lambda c="Not Implemented!": print(c))
             elif(command == "Quit"):
                 button = tk.Button(side_panel, text=command, command=window.destroy)
+            else:
+                button = tk.Button(side_panel, text=command, command=lambda c="Not Implemented!": print(c))
             # Add the button to the side panel
             button.pack(side=tk.TOP)
 
@@ -166,6 +164,9 @@ class Application:
             #widget.pack(side=tk.TOP)
             self.input_widgets[command][label] = widget
 
+        if(command == "Shutdown Server"):
+            label_widget = tk.Label(input_frame, text="This will shutdown the server, are you sure?")
+            label_widget.grid(column=0, row=0)
         self.input_windows[command] = input_window
         #print(input_window)
         
@@ -187,11 +188,17 @@ class Application:
 
         # Build the command string using the input values
         # ...
-        msg_body_body_json = {
-            "ID":values["FormID"].lower(),
-            "Stage": values.get("StageID", "NO STAGE ID FROM GUI"),
-            "Name":"NO NAME FROM GUI"
-        }
+        msg_body_body_json = ""
+        if command == "Shutdown Server":
+            pass
+        elif values:
+            msg_body_body_json = {
+                "ID":values["FormID"].lower(),
+                "Stage": values.get("StageID", "NO STAGE ID FROM GUI"),
+                "Name":"NO NAME FROM GUI",
+                "Flags":"000000"
+            }
+
         msg_body_json = {
             "Type": MSG_DEF[command],
             "Body": msg_body_body_json
@@ -207,12 +214,16 @@ class Application:
             self.client_socket.sendall(json.dumps(msg_json).encode())
 
             window = self.input_windows[command]
+            
             window.destroy() # Close the window
         else:
             print("Can't send incomplete!")
 
         # Send the command to the server and display the output
         # ...
-
+        if command == "Shutdown Server":
+            print("test")
+            main_window = self.master
+            main_window.destroy()
 App = Application()
 App.run()
