@@ -29,6 +29,8 @@ public:
 	bool init();
 	// The main procesing loop
 	void Run();
+	// Stop
+	void Stop();
 	// Cleanup after using the service
 	void Cleanup();
 

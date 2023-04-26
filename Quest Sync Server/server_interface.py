@@ -61,7 +61,7 @@ MSG_DEF = {
     "REQUEST_ACTIVE_QUESTS": 18,
     "ACTIVE_QUESTS": 19,
     "NONE": 20,
-    "SHUTDOWN": 21
+    "Shutdown Server": 21
 }
 
 class Application:
@@ -72,7 +72,7 @@ class Application:
 
         # Create a socket object and connect to the server
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect(('localhost', 25575))
+        self.client_socket.connect(('192.168.0.20', 25575))
 
         # Create the UI elements
         window = self.master  # Create a Tkinter window
@@ -99,6 +99,9 @@ class Application:
             "Fail Quest": [
                 {'label': 'FormID', 'type': 'hex'}
             ],
+            "Shutdown Server" : [
+
+            ],
             "Quit": []
         }
 
@@ -108,6 +111,8 @@ class Application:
             if(command != "Get Quest States" and command != "Quit"):
                 button = tk.Button(side_panel, text=command, command=lambda c=command, f=fields: self.create_input_window(c, f))
             elif(command == "Get Quest States"):
+                button = tk.Button(side_panel, text=command, command=lambda c="Not Implemented!": print(c))
+            elif(command == "Shutdown Server"):
                 button = tk.Button(side_panel, text=command, command=lambda c="Not Implemented!": print(c))
             elif(command == "Quit"):
                 button = tk.Button(side_panel, text=command, command=window.destroy)
@@ -183,7 +188,7 @@ class Application:
         # Build the command string using the input values
         # ...
         msg_body_body_json = {
-            "ID":values["FormID"],
+            "ID":values["FormID"].lower(),
             "Stage": values.get("StageID", "NO STAGE ID FROM GUI"),
             "Name":"NO NAME FROM GUI"
         }

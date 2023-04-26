@@ -235,6 +235,13 @@ void TCPListener::Run()
 	delete[] buffer;
 }
 
+void TCPListener::Stop()
+{
+	// Message all clients to disconnect
+	// Stop Listening
+	// Run Cleanup
+}
+
 void TCPListener::Cleanup()
 {
 	conected_clients.clear();

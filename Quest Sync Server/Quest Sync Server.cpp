@@ -83,9 +83,13 @@ bool is_new_objective(std::string refID, std::string objectiveId) // TODO binary
     bool result = true;
     for (auto quest : g_quest_list)
     {
-        for (auto stage : quest.Stages)
+        if(quest.ID == refID)
         {
-            if (stage == objectiveId) { result = false; break; }
+            for (auto stage : quest.Stages)
+            {
+                if (stage == objectiveId) { result = false; break; }
+            }
+            break;
         }
     }
     return result;
@@ -119,6 +123,7 @@ void Listener_MessageReceived(TCPListener* listener, int client, std::string msg
         if (msgClientBody.type != message_type::NONE) { replyClient.addMessage(msgClientBody); std::cout << "Have message for this client!" << std::endl;
         }
     }
+    listener.Stop()
 
     if (replyALL.getSize() > 0)
     {
@@ -464,6 +469,9 @@ void process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSync
             }
         }
     }
+    case message_type::SHUTDOWN:
+        listener.
+    break;
     break;
     default: break;
     }
