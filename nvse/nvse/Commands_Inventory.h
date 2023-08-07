@@ -115,7 +115,7 @@ DEFINE_SET_INV_FLOAT(SetWeaponMinRange, SetMinRange, sets the weapon min range);
 DEFINE_SET_INV_FLOAT(SetWeaponMaxRange, SetMaxRange, sets the weapon max range.);
 DEFINE_SET_INV_INT(SetWeaponAmmoUse, SetAmmoUse, sets the weapon ammo use);
 DEFINE_SET_INV_FLOAT(SetWeaponActionPoints, SetAP, sets the weapon number of action pointer per shot);
-DEFINE_SET_INV_INT(SetWeaponCritDamage, SetCritDam, sets the weapon critical hit damage.);
+DEFINE_SET_INV_INT(SetWeaponCritDamage, SetWeaponCritDamage, sets the weapon critical hit damage.);
 DEFINE_SET_INV_FLOAT(SetWeaponCritChance, SetCritPerc, sets the weapon critical hit chance);
 DEFINE_SET_INV_MAGIC(SetWeaponCritEffect, SetCritEffect, sets the weapon critical hit effect);
 DEFINE_SET_INV_FLOAT(SetWeaponFireRate, SetFireRate, sets the weapon fire rate);
@@ -169,28 +169,10 @@ DEFINE_COMMAND(GetPlayerCurrentAmmoRounds, returns the current number of rounds 
 DEFINE_COMMAND(SetPlayerCurrentAmmoRounds, sets the current number of rounds in the clip of the player, 0, 1, kParams_OneInt);
 DEFINE_COMMAND(GetPlayerCurrentAmmo, returns the current ammo in the weapon held by the player, 0, 0, NULL);
 
-DEFINE_CMD_ALT_COND(HasAmmoEquipped, IsAmmoEquipped, 
-	"returns if a specific ammo is equipped by the calling ref",
-	true, kParams_OneObjectID);
-DEFINE_CMD_COND(IsEquippedAmmoInList, "returns if any ammo in a list is currently equipped by the calling ref",
-	true, kParams_OneFormList);
-DEFINE_CMD_COND(GetEquippedWeaponCanUseAmmo,
-	"returns if the equipped weapon can use the specified ammo",
-	true, kParams_OneObjectID);
-DEFINE_CMD_COND(GetEquippedWeaponUsesAmmoList,
-	"returns if the equipped weapon uses a specific list of ammo",
-	true, kParams_OneFormList);
-
-DEFINE_GET_FORM(CloneForm, , clones the specified form and returns a new base form which will not be saved in the save game.);
+// CloneForm
+DEFINE_GET_FORM(CloneForm, , clones the specified form and returns a new base form which will be saved in the save game.);
+DEFINE_GET_FORM(TempCloneForm, , clones the specified form and returns a new base form which will not be saved in the save game.);
 DEFINE_GET_FORM(IsClonedForm, IsCloned, returns whether the specified form is a created object or not.);
-
-static ParamInfo kParamsTempCloneForm[2] =
-{
-	{	"form",	kParamType_AnyForm,	0	},
-	{	"bInheritModIndex",	kParamType_Integer,	1	},
-};
-
-DEFINE_CMD(TempCloneForm, "clones the specified form and returns a new base form which will be saved in the save game.", false, kParamsTempCloneForm);
 
 #undef DEFINE_GET_INV
 #undef DEFINE_SET_INV_INT

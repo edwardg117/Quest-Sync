@@ -22,9 +22,9 @@ static int ErrorLogHook(const char * fmt, const char * fmt_alt, ...)
 	auto* scriptContext = OtherHooks::GetExecutingScriptContext();
 	const auto retnAddress = reinterpret_cast<UInt32>(_ReturnAddress());
 
-	if (scriptContext && scriptContext->command && (scriptContext->command->opcode == 4418 || scriptContext->command->opcode == 4261) && retnAddress == 0x5E2383) // shut up Dispel and RemoveMe
+	if (scriptContext && scriptContext->command && scriptContext->command->opcode == 4418 && retnAddress == 0x5E2383) // shut up Dispel
 	{
-		// context: Dispel and RemoveMe return false deliberately if called within own script effect to act as a "Return" statement
+		// context: Dispel returns false deliberately if called within own script effect to act as a "Return" statement
 		return 0;
 	}
 	va_list	args;
@@ -139,19 +139,8 @@ void Hook_Logging_Init(void)
 
 	if(GetNVSEConfigOption_UInt32("Logging", "EnableGameErrorLog", &enableGameErrorLog) && enableGameErrorLog)
 	{
-		std::string filemode = "w";	//write and overwrite mode
-		UInt32	bAppendErrorLogs = 0;
-		if (GetNVSEConfigOption_UInt32("Logging", "bAppendErrorLogs", &bAppendErrorLogs) && bAppendErrorLogs) {
-			filemode = "a";	// append mode
-		}
-		fopen_s(&s_errorLog, "falloutnv_error.log", filemode.c_str());
-		fopen_s(&s_havokErrorLog, "falloutnv_havok.log", filemode.c_str());
-		if (bAppendErrorLogs)
-		{
-			time_t my_time = time(nullptr);
-			//format: Day Month Date hh : mm:ss Year
-			printf("\n%s", ctime(&my_time));
-		}
+		fopen_s(&s_errorLog, "falloutnv_error.log", "w");
+		fopen_s(&s_havokErrorLog, "falloutnv_havok.log", "w");
 
 		WriteRelJump(0x005B5E40, (UInt32)ErrorLogHook);
 

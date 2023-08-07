@@ -208,24 +208,6 @@ TESForm* GetPermanentBaseForm(TESObjectREFR* thisObj)	// For LevelledForm, find 
 	return NULL;
 }
 
-// Taken from JIP LN NVSE.
-__declspec(naked) float __vectorcall GetDistance3D(const TESObjectREFR* ref1, const TESObjectREFR* ref2)
-{
-	__asm
-	{
-		movups	xmm0, [ecx + 0x30]
-		movups	xmm1, [edx + 0x30]
-		subps	xmm0, xmm1
-		mulps	xmm0, xmm0
-		movhlps	xmm1, xmm0
-		addss	xmm1, xmm0
-		psrlq	xmm0, 0x20
-		addss	xmm1, xmm0
-		sqrtss	xmm0, xmm1
-		retn
-	}
-}
-
 void Actor::EquipItem(TESForm * objType, UInt32 equipCount, ExtraDataList* itemExtraList, UInt32 unk3, bool lockEquip, UInt32 unk5)
 {
 	ThisStdCall(s_Actor_EquipItem, this, objType, equipCount, itemExtraList, unk3, lockEquip, unk5);
@@ -270,21 +252,11 @@ ExtraContainerExtendDataArray	Actor::GetEquippedExtendDataList()
 	ExtraContainerDataArray itemArray;
 	ExtraContainerExtendDataArray outExtendData;
 
-	ExtraContainerChanges* xChanges = static_cast<ExtraContainerChanges*>(extraDataList.GetByType(kExtraData_ContainerChanges));
+	ExtraContainerChanges	* xChanges = static_cast <ExtraContainerChanges *>(extraDataList.GetByType(kExtraData_ContainerChanges));
 	if(xChanges)
 		xChanges->GetAllEquipped(itemArray, outExtendData);
 
 	return outExtendData;
-}
-
-// Copied from JIP
-TESObjectWEAP* Actor::GetEquippedWeapon() const
-{
-	if (baseProcess) {
-		ExtraContainerChanges::EntryData* weaponInfo = baseProcess->GetWeaponInfo();
-		if (weaponInfo) return (TESObjectWEAP*)weaponInfo->type;
-	}
-	return NULL;
 }
 
 bool TESObjectREFR::GetInventoryItems(InventoryItemsMap &invItems)
@@ -333,16 +305,4 @@ bool TESObjectREFR::GetInventoryItems(InventoryItemsMap &invItems)
 ExtraDroppedItemList* TESObjectREFR::GetDroppedItems()
 {
 	return static_cast<ExtraDroppedItemList*>(extraDataList.GetByType(kExtraData_DroppedItemList));
-}
-
-// Code by JIP
-double TESObjectREFR::GetHeadingAngle(const TESObjectREFR* to) const
-{
-	auto const from = this;
-	double result = (atan2(to->posX - from->posX, to->posY - from->posY) - from->rotZ) * 57.29577951308232;
-	if (result < -180)
-		result += 360;
-	else if (result > 180)
-		result -= 360;
-	return result;
 }

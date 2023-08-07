@@ -1,3 +1,4 @@
+// Build for xNVSE 6.2.4
 #include "nvse/PluginAPI.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameAPI.h"
@@ -7,7 +8,6 @@
 #include <iostream>
 #include "nvse/utility.h"
 //NoGore is unsupported in xNVSE
-
 #include "TCPClient.h"
 #include "filthy_ini.h"
 #include "QuestManager.h"
@@ -17,55 +17,27 @@
 using json = nlohmann::json;
 #include <chrono>
 
+#ifndef RegisterScriptCommand
+#define RegisterScriptCommand(name) 	nvse->RegisterCommand(&kCommandInfo_ ##name);
+#endif
+
 IDebugLog		gLog("Quest_Sync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 
-NVSEMessagingInterface* g_messagingInterface{};
-NVSEInterface* g_nvseInterface{};
-NVSECommandTableInterface* g_cmdTableInterface{};
+NVSEMessagingInterface* g_messagingInterface;
+NVSEInterface* g_nvseInterface;
+NVSECommandTableInterface* g_cmdTable;
+const CommandInfo* g_TFC;
 
-// RUNTIME = Is not being compiled as a GECK plugin.
-#if RUNTIME
-NVSEScriptInterface* g_script{};
-NVSEStringVarInterface* g_stringInterface{};
-NVSEArrayVarInterface* g_arrayInterface{};
-NVSEDataInterface* g_dataInterface{};
-NVSESerializationInterface* g_serializationInterface{};
+#if RUNTIME  //if non-GECK version (in-game)
+NVSEScriptInterface* g_script;
 NVSEConsoleInterface* g_consoleInterface{};
-NVSEEventManagerInterface* g_eventInterface{};
-bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 TCPClient client("", 0);
 #endif
 
-/****************
- * Here we include the code + definitions for our script functions,
- * which are packed in header files to avoid lengthening this file.
- * Notice that these files don't require #include statements for globals/macros like ExtractArgsEx.
- * This is because the "fn_.h" files are only used here,
- * and they are included after such globals/macros have been defined.
- ***************/
-#include "fn_intro_to_script_functions.h" 
-#include "fn_typed_functions.h"
-
-
-// Shortcut macro to register a script command (assigning it an Opcode).
-#define RegisterScriptCommand(name) 	nvse->RegisterCommand(&kCommandInfo_ ##name)
-
-// Short version of RegisterScriptCommand.
-#define REG_CMD(name) RegisterScriptCommand(name)
-
-// Use this when the function's return type is not a number (when registering array/form/string functions).
-//Credits: taken from JohnnyGuitarNVSE.
-#define REG_TYPED_CMD(name, type)	nvse->RegisterTypedCommand(&kCommandInfo_##name,kRetnType_##type)
-
+bool (*ExtractArgsEx)(COMMAND_ARGS_EX, ...);
 
 // Forward declarations of my functions
-std::string int_to_hex_string(int number);
-bool is_new_quest(std::string ID);
-bool is_new_quest(UInt32 refID);
-bool is_new_objective(std::string QuestID, std::string objectiveId);
-bool is_new_objective(UInt32 refID, UInt32 objectiveId);
-bool is_new_objective(BGSQuestObjective* Objective);
 UInt32 g_previousQuestCount = 0;
 const long long g_wait_for_reconnect_seconds = 60;
 std::chrono::steady_clock::time_point g_last_connection_failure = std::chrono::steady_clock::now();
@@ -74,21 +46,42 @@ std::list<TESQuest*> g_current_quest_list;
 std::list<BGSQuestObjective*> g_current_objective_list;
 QuestManager g_QuestManager;
 
-
 // This is a message handler for nvse events
 // With this, plugins can listen to messages such as whenever the game loads
 void MessageHandler(NVSEMessagingInterface::Message* msg)
 {
 	switch (msg->type)
 	{
+	case NVSEMessagingInterface::kMessage_LoadGame:
+		_MESSAGE("Received load game message with file path %s", msg->data);
+		break;
+	case NVSEMessagingInterface::kMessage_SaveGame:
+		_MESSAGE("Received save game message with file path %s", msg->data);
+		break;
+	case NVSEMessagingInterface::kMessage_PreLoadGame:
+		_MESSAGE("Received pre load game message with file path %s", msg->data);
+		break;
+	case NVSEMessagingInterface::kMessage_PostLoadGame:
+		_MESSAGE("Received post load game message", msg->data ? "Error/Unkwown" : "OK");
+		_MESSAGE("Game has been loaded (Save loaded), populating current quests");
+		//populate_current_quests();
+		g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
+		_MESSAGE("Done!");
+		break;
 	case NVSEMessagingInterface::kMessage_PostLoad:
-		//_MESSAGE("Post Load - plugintest running");
-		//TCPClient client("127.0.0.1", 25575);
-
+		_MESSAGE("Received post load plugins message");
+		break;
+	case NVSEMessagingInterface::kMessage_PostPostLoad:
+		_MESSAGE("Received post post load plugins message");
 		break;
 	case NVSEMessagingInterface::kMessage_ExitGame:
-		_MESSAGE("Exit Game - plugintest running");
 		_MESSAGE("Exiting Game");
+		g_QuestManager.reset();
+		client.Disconnect();
+		client.Cleanup();
+		break;
+	case NVSEMessagingInterface::kMessage_ExitGame_Console:
+		_MESSAGE("Exiting Game - via console qqq comand");
 		g_QuestManager.reset();
 		client.Disconnect();
 		client.Cleanup();
@@ -97,48 +90,18 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		_MESSAGE("Exiting to Main Menu");
 		g_QuestManager.reset();
 		break;
-	case NVSEMessagingInterface::kMessage_LoadGame:
-		_MESSAGE("Load game - plugintest running");
+	case NVSEMessagingInterface::kMessage_Precompile:
+		_MESSAGE("Received precompile message with script");
 		break;
-	case NVSEMessagingInterface::kMessage_SaveGame:
-		_MESSAGE("Save game - plugintest running");
+	case NVSEMessagingInterface::kMessage_RuntimeScriptError:
+		_MESSAGE("Received runtime script error message %s", msg->data);
 		break;
-#if EDITOR
-	case NVSEMessagingInterface::kMessage_ScriptEditorPrecompile: break;
-#endif
-	case NVSEMessagingInterface::kMessage_PreLoadGame:
-		_MESSAGE("Pre load game - plugintest running");
-		break;
-	case NVSEMessagingInterface::kMessage_ExitGame_Console:
-		_MESSAGE("Exiting Game");
-		g_QuestManager.reset();
-		client.Disconnect();
-		client.Cleanup();
-		break;
-	case NVSEMessagingInterface::kMessage_PostLoadGame:
-		_MESSAGE("Game has been loaded (Save loaded)");
-		//populate_current_quests();
-		g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
-		_MESSAGE("Done!");
-		break;
-	case NVSEMessagingInterface::kMessage_PostPostLoad:
-		//_MESSAGE("Post Post Load - plugintest running");
-		break;
-	case NVSEMessagingInterface::kMessage_RuntimeScriptError: break;
-	case NVSEMessagingInterface::kMessage_DeleteGame: break;
-	case NVSEMessagingInterface::kMessage_RenameGame: break;
-	case NVSEMessagingInterface::kMessage_RenameNewGame: break;
-	case NVSEMessagingInterface::kMessage_NewGame:
+	case NVSEMessagingInterface::kMessage_NewGame: // This wasn't here but appears to be defined
 		_MESSAGE("New Game - plugintest running");
 		//populate_current_quests();
 		g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
 		break;
-	case NVSEMessagingInterface::kMessage_DeleteGameName:
-		_MESSAGE("Delete Game Name - plugintest running");
-		break;
-	case NVSEMessagingInterface::kMessage_RenameGameName: break;
-	case NVSEMessagingInterface::kMessage_RenameNewGameName: break;
-	case NVSEMessagingInterface::kMessage_DeferredInit:
+	case NVSEMessagingInterface::kMessage_DeferredInit: // Same as kMessage_NewGame: not present but seems to be defined
 		_MESSAGE("Initialising TCP Client");
 		/* {std::string gamePath = GetFalloutDirectory();
 		std::cout << "From the get direcroty thing: " << gamePath;
@@ -162,68 +125,14 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			std::cout << WSAGetLastError() << std::endl;
 		}
 		break;
-	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
-	case NVSEMessagingInterface::kMessage_MainGameLoop:
-		//_MESSAGE("Main loop");
-		// Overview of flow: (outdated, moved server message processing to last)
-		// 
-		// Connected?
-		// No - Try connect again
-		// 
-		// 1. Get messages from server and apply actions
-		//	1.1 Connection Acknowledgement?
-		//		1.1.1 Set Connection Acknowledgement to true
-		//	1.2 Start Quest?
-		//		1.2.1 Has this quest already been started?
-		//		1.2.2 (Yes) Do nothing
-		//		1.2.3 (No) Start the quest and set its stage
-		//	1.3 Update Quest?
-		//		1.3.1 Set Stage
-		//		1.3.2 Complete previous stage with SetObjectiveCompleted
-		//	1.4 Complete Quest?
-		//		1.4.1 Set Stage? Complete previous stage?
-		//		1.4.2 Complete quest
-		//	1.5 Fail Quest?
-		//		1.5.1 Fail Quest
-		//	1.6 All Quests - Sync Quests
-		//		1.6.1 Figure out what quests differ
-		//		1.6.2 Start missing quests
-		//		1.6.3 Set Relevant Stages
-		//		1.6.4 Complete quests
-		//		1.6.5 Fail Quests
-		//		1.6.6 Send the server any discrepancies (In case this client started a quest the server doesn't know about)
-		// 2. Look for Quest and Stage updates 
-		//	2.1 Has the list of quest objectives increased in count?
-		//		2.1.1 Get latest addition/s by looping from the head of the list, and moving down for the number of new entries
-		//		      as all the latest additions are insterted at the top of the list.
-		//		2.1.2 New (ACTIVE) quest that was just added? 
-		//			2.1.2.1 (Yes) Add to the currently monitored quest list
-		//			2.1.2.2 Tell the server about this new quest (with stage)
-		//		2.1.3 Existing (ACTIVE) quest that has a new entry?
-		//			2.1.3.1 (Yes) Tell the server about this new entry (stage)
-		//		If neither 2.1.2 or 2.1.3 then ignore this quest, but make a note of it in the logs because there might be something I have to do with them, idk  yet
-		// 
-		// 3. Check for quest completions/failures by - For every currently monitored quest:
-		//	3.1 Check if Active or Completed
-		//	(YES)
-		//		3.1.1 If Completed or Failed
-		//		(YES) 
-		//			3.1.1.1 If Completed - Tell Server
-		//			3.1.1.2 If Failed - Tell Server
-		//		(NO)
-		//			3.1.1.3 Else Quest was removed from active for some reason, will most likely get added again later
-		//		3.1.2 Remove Quest from Active list
-		//	(NO)
-		//	3.2 Move on, quest will still be monitored 
-		//		
-
+	case NVSEMessagingInterface::kMessage_MainGameLoop: // Same as above
 		if (!client.isConnected()) // Can't do anything if the server isn't connected
 		{
 			// uint64_t sec = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
 			//auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 			std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-			if(std::chrono::duration_cast<std::chrono::seconds>(now - g_last_connection_failure).count() >= g_wait_for_reconnect_seconds)
+			if (std::chrono::duration_cast<std::chrono::seconds>(now - g_last_connection_failure).count() >= g_wait_for_reconnect_seconds)
 			{
 				// Try connect
 				//_MESSAGE("%llu is greater than %llu", std::chrono::duration_cast<std::chrono::seconds>(now - g_last_connection_failure).count(), g_wait_for_reconnect_seconds);
@@ -234,10 +143,10 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 				g_last_connection_failure = std::chrono::steady_clock::now();
 
 				if (!client.isConnected()) { _MESSAGE("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds); Console_Print("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds); break; } // Can't do anything if not connected
-				else 
-				{ 
+				else
+				{
 					_MESSAGE("Connected to the server!");
-					Console_Print("Connected to the Quest Sync server!"); 
+					Console_Print("Connected to the Quest Sync server!");
 					g_QuestManager.populate_current_quests(PlayerCharacter::GetSingleton()->questObjectiveList);
 					std::string message = "MessageEx \"Connected to Quest Sync Serevr!\"";
 					g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
@@ -255,21 +164,64 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			g_QuestManager.process(&client, player->questObjectiveList, g_consoleInterface);
 			//g_last_connection_failure = std::chrono::steady_clock::now();
 		}
-
+	default:
 		break;
-	case NVSEMessagingInterface::kMessage_ScriptCompile: break;
-	case NVSEMessagingInterface::kMessage_EventListDestroyed: break;
-	case NVSEMessagingInterface::kMessage_PostQueryPlugins: break;
-	default: break;
 	}
 }
 
-std::string int_to_hex_string(int number)
+
+bool Cmd_ExamplePlugin_PluginTest_Execute(COMMAND_ARGS);
+
+#if RUNTIME  //if non-GECK version (in-game)
+//In here we define a script function
+//Script functions must always follow the Cmd_FunctionName_Execute naming convention
+bool Cmd_ExamplePlugin_PluginTest_Execute(COMMAND_ARGS)
 {
-	std::stringstream stream;
-	stream << std::hex << number;
-	return std::string(stream.str());
+	_MESSAGE("plugintest");
+
+	*result = 42;
+
+	Console_Print("plugintest running");
+
+	return true;
 }
+#endif
+
+//This defines a function without a condition, that does not take any arguments
+DEFINE_COMMAND_PLUGIN(ExamplePlugin_PluginTest, "prints a string", false, NULL)
+
+bool Cmd_ExamplePlugin_IsNPCFemale_Eval(COMMAND_ARGS_EVAL);
+
+#if RUNTIME
+//Conditions must follow the Cmd_FunctionName_Eval naming convention
+bool Cmd_ExamplePlugin_IsNPCFemale_Eval(COMMAND_ARGS_EVAL)
+{
+
+	TESNPC* npc = (TESNPC*)arg1;
+	*result = npc->baseData.IsFemale() ? 1 : 0;
+	return true;
+}
+#endif
+
+bool Cmd_ExamplePlugin_IsNPCFemale_Execute(COMMAND_ARGS);
+
+#if RUNTIME
+bool Cmd_ExamplePlugin_IsNPCFemale_Execute(COMMAND_ARGS)
+{
+	//Created a simple condition 
+	//thisObj is what the script extracts as parent caller
+	//EG, Ref.IsFemale would make thisObj = ref
+	//We are using actor bases though, so the function is called as such: ExamplePlugin_IsNPCFemale baseForm
+	TESNPC* npc = 0;
+	if (ExtractArgsEx(EXTRACT_ARGS_EX, &npc))
+	{
+		Cmd_ExamplePlugin_IsNPCFemale_Eval(thisObj, npc, NULL, result);
+	}
+
+	return true;
+}
+#endif
+DEFINE_COMMAND_PLUGIN(ExamplePlugin_IsNPCFemale, "Checks if npc is female", false, kParams_OneActorBase)
 
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
@@ -278,11 +230,10 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSyncPlugin";
-	info->version = 8;
+	info->version = 9;
 
 	// version checks
-	//if (nvse->nvseVersion < PACKED_NVSE_VERSION)
-	if(false)
+	if (nvse->nvseVersion < PACKED_NVSE_VERSION)
 	{
 		_ERROR("NVSE version too old (got %08X expected at least %08X)", nvse->nvseVersion, PACKED_NVSE_VERSION);
 		return false;
@@ -302,6 +253,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 			return false;
 		}
 	}
+
 	else
 	{
 		if (nvse->editorVersion < CS_VERSION_1_4_0_518)
@@ -310,42 +262,36 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 			return false;
 		}
 	}
-	
+
+	// Should not use any later than 6.2.4 for this version
+	if (nvse->nvseVersion < PACKED_NVSE_VERSION)
+	{
+		_ERROR("NVSE version too new (got %08X expected %08X)", nvse->nvseVersion, PACKED_NVSE_VERSION);
+		return false;
+	}
+
 	// version checks pass
 	// any version compatibility checks should be done here
 	return true;
 }
 
-bool NVSEPlugin_Load(NVSEInterface* nvse)
+bool NVSEPlugin_Load(const NVSEInterface* nvse)
 {
 	_MESSAGE("load");
 
 	g_pluginHandle = nvse->GetPluginHandle();
-	//nvse->GetRuntimeDirectory();
 
-	// save the NVSE interface in case we need it later
-	g_nvseInterface = nvse;
+	// save the NVSEinterface in cas we need it later
+	g_nvseInterface = (NVSEInterface*)nvse;
 
 	// register to receive messages from NVSE
-	g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
+	g_messagingInterface = (NVSEMessagingInterface*)nvse->QueryInterface(kInterface_Messaging);
 	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
 
-	if (!nvse->isEditor)
-	{
 #if RUNTIME
-		// script and function-related interfaces
-		g_script = static_cast<NVSEScriptInterface*>(nvse->QueryInterface(kInterface_Script));
-		g_stringInterface = static_cast<NVSEStringVarInterface*>(nvse->QueryInterface(kInterface_StringVar));
-		g_arrayInterface = static_cast<NVSEArrayVarInterface*>(nvse->QueryInterface(kInterface_ArrayVar));
-		g_dataInterface = static_cast<NVSEDataInterface*>(nvse->QueryInterface(kInterface_Data));
-		g_eventInterface = static_cast<NVSEEventManagerInterface*>(nvse->QueryInterface(kInterface_EventManager));
-		g_serializationInterface = static_cast<NVSESerializationInterface*>(nvse->QueryInterface(kInterface_Serialization));
-		g_consoleInterface = static_cast<NVSEConsoleInterface*>(nvse->QueryInterface(kInterface_Console));
-		ExtractArgsEx = g_script->ExtractArgsEx;
+	g_script = (NVSEScriptInterface*)nvse->QueryInterface(kInterface_Script);
+	ExtractArgsEx = g_script->ExtractArgsEx;
 #endif
-	}
-	
-
 	/***************************************************************************
 	 *
 	 *	READ THIS!
@@ -360,89 +306,10 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 	 *
 	 **************************************************************************/
 
-	// Do NOT use this value when releasing your plugin; request your own opcode range.
-	UInt32 const examplePluginOpcodeBase = 0x2000;
-	
 	 // register commands
-	nvse->SetOpcodeBase(examplePluginOpcodeBase);
-	
-	/*************************
-	 * The hexadecimal Opcodes are written as comments to the left of their respective functions.
-	 * It's important to keep track of how many Opcodes are being used up,
-	 * as each plugin is given a limited range which may need to be expanded at some point.
-	 *
-	 * === How Opcodes Work ===
-	 * Each function is associated to an Opcode,
-	 * which the game uses to look-up where to find your function's code.
-	 * It is CRUCIAL to never change a function's Opcode once it is released to the public.
-	 * This is because when compiling a script, each function being called are represented as Opcodes.
-	 * So changing a function's Opcode will invalidate previously compiled scripts,
-	 * as they will fail to look up that function properly, instead probably finding some other function.
-	 *
-	 * Example: say we compile a script that uses ExamplePlugin_IsNPCFemale.
-	 * The compiled script will check for the Opcode 0x2002 to call that function, and should work fine.
-	 * If we remove /REG_CMD(ExamplePlugin_CrashScript);/, and don't register a new function to replace it,
-	 * then `REG_CMD(ExamplePlugin_IsNPCFemale);` now registers with Opcode #0x2001.
-	 * When we test the script now, a bug/crash is bound to happen,
-	 * since the script is looking for an Opcode which is no longer bound to the expected function.
-	 ************************/
-	
-	/*2000* RegisterScriptCommand(ExamplePlugin_PluginTest);
-	/*2001* REG_CMD(ExamplePlugin_CrashScript);
-	/*2002* REG_CMD(ExamplePlugin_IsNPCFemale);
-	/*2003* REG_CMD(ExamplePlugin_FunctionWithAnAlias);
-	/*2004* REG_TYPED_CMD(ExamplePlugin_ReturnForm, Form);
-	/*2005* REG_TYPED_CMD(ExamplePlugin_ReturnString, String);	// ignore the highlighting for String class, that's not being used here.
-	/*2006* REG_TYPED_CMD(ExamplePlugin_ReturnArray, Array);*/
-	
+	nvse->SetOpcodeBase(0x2000);
+	//RegisterScriptCommand(ExamplePlugin_PluginTest);
+	//RegisterScriptCommand(ExamplePlugin_IsNPCFemale);
+
 	return true;
-}
-
-bool is_new_quest(std::string ID) // Takes hex id for quest and checks to see if it's new
-{
-	bool is_new_quest = true;
-	for (auto existing_quest : g_current_quest_list)
-	{
-		if (int_to_hex_string(existing_quest->refID) == ID) { is_new_quest = false; break; }
-	}
-	return is_new_quest;
-}
-bool is_new_quest(UInt32 refID)
-{
-	bool is_new = true;
-	for (auto existing_quest : g_current_quest_list)
-	{
-		if (existing_quest->refID == refID) { is_new = false; break; } // If reference ids match, it's the same! (duh)
-	}
-	return is_new;
-}
-
-bool is_new_objective(std::string QuestID, std::string objectiveId)
-{
-	bool is_new_objective = true;
-	for (auto existing_objective : g_current_objective_list)
-	{
-		if (existing_objective->objectiveId == stoi(objectiveId) && int_to_hex_string(existing_objective->quest->refID) == QuestID) { is_new_objective = false; break; }
-	}
-	return is_new_objective;
-}
-bool is_new_objective(UInt32 refID, UInt32 objectiveId)
-{
-	bool is_new_objective = true;
-	for (auto existing_objective : g_current_objective_list)
-	{
-		if (existing_objective->objectiveId == objectiveId && existing_objective->quest->refID == refID) { is_new_objective = false; break; } // If objective ids match, it's the same!
-	}
-	return is_new_objective;
-}
-bool is_new_objective(BGSQuestObjective* Objective)
-{
-	bool is_new_objective = true;
-	UInt32 objectiveId = Objective->objectiveId;
-	UInt32 refID = Objective->quest->refID;
-	for (auto existing_objective : g_current_objective_list)
-	{
-		if (existing_objective->objectiveId == objectiveId && existing_objective->quest->refID == refID) { is_new_objective = false; break; } // If objective ids match, it's the same!
-	}
-	return is_new_objective;
 }

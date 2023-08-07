@@ -220,9 +220,7 @@ bool Cmd_ForEach_Execute(COMMAND_ARGS)
 			}
 			else if (context->variableType == Script::eVarType_Ref)
 			{
-				if IS_ID(((TESForm*)context->sourceID), BGSListForm)
-					loop = new FormListIterLoop(context);
-				else loop = new ContainerIterLoop(context);
+				loop = new ContainerIterLoop(context);
 			}
 		}
 	}
@@ -406,7 +404,7 @@ bool Cmd_TypeOf_Execute(COMMAND_ARGS)
 			typeStr = "Form";
 		else if (eval.Arg(0)->CanConvertTo(kTokenType_Array))
 		{
-			ArrayVar *arr = g_ArrayMap.Get(eval.Arg(0)->GetArrayID());
+			ArrayVar *arr = g_ArrayMap.Get(eval.Arg(0)->GetArray());
 			if (!arr) typeStr = "<Bad Array>";
 			else if (arr->KeyType() == kDataType_Numeric)
 				typeStr = arr->IsPacked() ? "Array" : "Map";
@@ -428,11 +426,35 @@ bool Cmd_Function_Execute(COMMAND_ARGS)
 bool Cmd_Call_Execute(COMMAND_ARGS)
 {
 	*result = 0;
+
 	ExpressionEvaluator eval(PASS_COMMAND_ARGS);
-	if (auto const funcResult = UserFunctionManager::Call(&eval))
+
+	ScriptToken* funcResult = UserFunctionManager::Call(&eval);
+	if (funcResult)
 	{
-		funcResult->AssignResult(eval);
+		if (funcResult->CanConvertTo(kTokenType_Number))
+			*result = funcResult->GetNumber();
+		else if (funcResult->CanConvertTo(kTokenType_String))
+		{
+			AssignToStringVar(PASS_COMMAND_ARGS, funcResult->GetString());
+			eval.ExpectReturnType(kRetnType_String);
+		}
+		else if (funcResult->CanConvertTo(kTokenType_Form))
+		{
+			UInt32* refResult = (UInt32*)result;
+			*refResult = funcResult->GetFormID();
+			eval.ExpectReturnType(kRetnType_Form);
+		}
+		else if (funcResult->CanConvertTo(kTokenType_Array))
+		{
+			*result = funcResult->GetArray();
+			eval.ExpectReturnType(kRetnType_Array);
+		}
+		else
+			ShowRuntimeError(scriptObj, "Function call returned unexpected token type %d", funcResult->Type());
 	}
+
+	delete funcResult;
 	return true;
 }
 
@@ -456,7 +478,7 @@ bool Cmd_CallFunctionCond_Eval(COMMAND_ARGS_EVAL)
 			{
 				InternalFunctionCaller caller(scriptIter, thisObj, nullptr);
 				caller.SetArgs(0);
-				if (tokenResult = UserFunctionManager::Call(std::move(caller)))
+				if (tokenResult = std::unique_ptr<ScriptToken>(UserFunctionManager::Call(std::move(caller))))
 				{
 					if (bBreakIfFalse && !tokenResult->GetBool())
 						return true;
@@ -672,10 +694,7 @@ bool Cmd_PrintVar_Execute(COMMAND_ARGS)
 		break;
 	}
 	const auto toPrint = std::string(GetVariableName(token->GetVar(), scriptObj, eventList, token->refIdx)) + ": " + variableValue;
-	if (toPrint.size() < 512)
-		Console_Print("%s", toPrint.c_str());
-	else
-		Console_Print_Long(toPrint);
+	Console_Print("%s", toPrint.c_str());
 	return true;
 }
 
@@ -690,30 +709,6 @@ bool Cmd_Internal_PopExecutionContext_Execute(COMMAND_ARGS)
 	return ExtractArgsOverride::PopContext();
 }
 
-
-bool Cmd_Assert_Execute(COMMAND_ARGS)
-{
-	ExpressionEvaluator eval(PASS_COMMAND_ARGS);
-	if (!eval.ExtractArgs() || !eval.Arg(0)->GetNumber())
-	{
-		const auto lineText = eval.GetLineText();
-		const auto varText = eval.GetVariablesText();
-		Console_Print("Assertion failed!");
-		if (!lineText.empty())
-			Console_Print("\t%s", lineText.c_str());
-		if (!varText.empty())
-			Console_Print("\tWhere %s", varText.c_str());
-	}
-	return true;
-}
-
-bool Cmd_GetSelfAlt_Execute(COMMAND_ARGS)
-{
-	UInt32* refResult = (UInt32*)result;
-	*refResult = thisObj ? thisObj->refID : 0;
-	return true;
-}
-
 #endif
 
 bool Cmd_Let_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffer* lineBuf, ScriptBuffer* scriptBuf)
@@ -723,7 +718,7 @@ bool Cmd_Let_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffer* lin
 		return false;
 
 	// verify that assignment operator is last data recorded
-	const UInt8 lastData = lineBuf->dataBuf[lineBuf->dataOffset - 1];
+	UInt8 lastData = lineBuf->dataBuf[lineBuf->dataOffset - 1];
 	switch (lastData)
 	{
 	case kOpType_Assignment:
@@ -758,7 +753,7 @@ bool Cmd_BeginLoop_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffe
 bool Cmd_Loop_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffer* lineBuf, ScriptBuffer* scriptBuf)
 {
 	UInt8* endPtr = scriptBuf->scriptData + scriptBuf->dataOffset + lineBuf->dataOffset + 4;
-	const UInt32 offset = endPtr - scriptBuf->scriptData;		// num bytes between beginning of script and instruction following Loop
+	UInt32 offset = endPtr - scriptBuf->scriptData;		// num bytes between beginning of script and instruction following Loop
 
 	if (!HandleLoopEnd(offset))
 	{
@@ -779,7 +774,7 @@ bool Cmd_Null_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffer* li
 
 bool Cmd_Function_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffer* lineBuf, ScriptBuffer* scriptBuf)
 {
-	const ExpressionParser parser(scriptBuf, lineBuf);
+	ExpressionParser parser(scriptBuf, lineBuf);
 	return parser.ParseUserFunctionDefinition();
 }
 
@@ -788,6 +783,7 @@ bool Cmd_Call_Parse(UInt32 numParams, ParamInfo* paramInfo, ScriptLineBuffer* li
 	ExpressionParser parser(scriptBuf, lineBuf);
 	return parser.ParseUserFunctionCall();
 }
+
 
 static ParamInfo kParams_OneBasicType[] =
 {
@@ -807,6 +803,11 @@ CommandInfo kCommandInfo_Let =
 	Cmd_Let_Parse,
 	NULL,
 	0
+};
+
+static ParamInfo kParams_OneBoolean[] =
+{
+	{	"boolean expression",	kNVSEParamType_Boolean,	0	},
 };
 
 CommandInfo kCommandInfo_eval =

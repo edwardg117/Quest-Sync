@@ -27,7 +27,7 @@ struct ScriptAndScriptBuffer
 };
 
 #if RUNTIME
-void PatchRuntimeScriptCompile();
+void PatchScriptCompile();
 const UInt32 ExtractStringPatchAddr = 0x005ADDCA; // ExtractArgs: follow first jz inside loop then first case of following switch: last call in case.
 const UInt32 ExtractStringRetnAddr = 0x005ADDE3;
 
@@ -166,52 +166,6 @@ __declspec(naked) void ExpressionEvalRunCommandHook()
 	}
 }
 
-void* g_heapManager = reinterpret_cast<void*>(0x11F6238);
-
-size_t Heap_MemorySize(void* memory)
-{
-	return ThisStdCall<size_t>(0xAA44C0, g_heapManager, memory);
-}
-
-namespace RemoveScriptDataLimit
-{
-	void __fastcall RemoveScriptDataSizeLimit(const ScriptLineBuffer* lineBuffer, ScriptBuffer* scriptBuffer)
-	{
-		const size_t dataSize = Heap_MemorySize(scriptBuffer->scriptData);
-		if (scriptBuffer->dataOffset + lineBuffer->dataOffset + 10 < dataSize)
-			return;
-		const size_t newMemSize = dataSize * 2;
-		void* newMem = FormHeap_Allocate(newMemSize);
-		memset(newMem, 0, newMemSize);
-		memcpy(newMem, scriptBuffer->scriptData, scriptBuffer->dataOffset);
-		FormHeap_Free(scriptBuffer->scriptData);
-		scriptBuffer->scriptData = static_cast<UInt8*>(newMem);
-	}
-
-	__declspec(naked) void Hook()
-	{
-		static UInt32 const skipReturn = 0x5B0FB4;
-		__asm
-		{
-			// edx already contains scriptBuffer
-			mov		ecx, [ebp + 0x10]  // ecx = lineBuffer
-			call	RemoveScriptDataSizeLimit
-
-			// No need to set up any registers.
-			jmp		skipReturn
-		}
-	}
-
-	// Remove script data size limit at runtime.
-	// Based off Kormakur's fix for GECK.
-	// https://github.com/lStewieAl/Geck-Extender/commit/57753e9c8bc6695c02a6b9a3a06e86fd16ea589d
-	void WriteHook()
-	{
-		WriteRelJump(0x5B0F68, UInt32(Hook));
-	}
-}
-
-
 void Hook_Script_Init()
 {
 	WriteRelJump(ExtractStringPatchAddr, (UInt32)&ExtractStringHook);
@@ -258,7 +212,7 @@ void Hook_Script_Init()
 	
 	WriteRelJump(0x5949D4, reinterpret_cast<UInt32>(ExpressionEvalRunCommandHook));
 
-	PatchRuntimeScriptCompile();
+	PatchScriptCompile();
 }
 
 #else // CS-stuff
@@ -366,7 +320,7 @@ void RegisterLoopStart(UInt8 *offsetPtr)
 
 bool HandleLoopEnd(UInt32 offsetToEnd)
 {
-	if (s_loopStartOffsets.empty())
+	if (!s_loopStartOffsets.size())
 		return false;
 
 	UInt8 *startPtr = s_loopStartOffsets.top();
@@ -383,27 +337,20 @@ std::stack<Script*> g_currentScriptStack;
 bool __stdcall HandleBeginCompile(ScriptBuffer* buf, Script* script)
 {
 	// empty out the loop stack
-	while (!s_loopStartOffsets.empty())
+	while (s_loopStartOffsets.size())
 		s_loopStartOffsets.pop();
-
-	g_currentScriptStack.push(script);
 
 	// Preprocess the script:
 	//  - check for usage of array variables in Set statements (disallowed)
 	//  - check loop structure integrity
 	//  - check for use of ResetAllVariables on scripts containing string/array vars
-	bool bResult = true;
-	if (g_currentScriptStack.size() == 1)
-	{
-		// Avoid preprocessing a lambda inside a script, since the lambda should already be preprocessed.
-		bResult = PrecompileScript(buf);
-	}
-		
+	g_currentScriptStack.push(script);
+
+	bool bResult = PrecompileScript(buf);
 	if (bResult)
 	{
 		ScriptAndScriptBuffer msg{ script, buf };
-		PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_ScriptEditorPrecompile, 
-			&msg, sizeof(ScriptAndScriptBuffer), NULL);
+		PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_Precompile, &msg, sizeof(ScriptAndScriptBuffer), NULL);
 	}
 
 	if (!bResult)
@@ -414,94 +361,69 @@ bool __stdcall HandleBeginCompile(ScriptBuffer* buf, Script* script)
 
 void PostScriptCompile()
 {
-	if (!g_currentScriptStack.empty()) // could be empty here at runtime if the ScriptBuffer or Script are nullptr.
-	{
-		g_currentScriptStack.pop();
-
-		// Avoid clearing the variables map after parsing a lambda script that belongs to a parent script.
-		if (g_currentScriptStack.empty())
-			g_variableDefinitionsMap.clear(); // must be the parent script we just removed.
-	}
+	g_currentScriptStack.pop();
 }
 
 #if RUNTIME
 
-namespace Runtime // double-clarify
+__declspec(naked) void HookBeginScriptCompile()
 {
-	bool __fastcall HandleBeginCompile_SetNotCompiled(Script* script, ScriptBuffer* buf, bool isCompiled)
+	const static auto retnAddr = 0x5AEB99;
+	__asm
 	{
-		script->info.compiled = isCompiled; // will be false.
-		return HandleBeginCompile(buf, script);
-	}
-
-	__declspec(naked) void HookBeginScriptCompile()
-	{
-		const static auto retnAddr = 0x5AEBB6;
-		const static auto failAddr = 0x5AEDA0;
-		__asm
-		{
-			mov edx, [ebp + 0xC] //scriptBuffer
-			call HandleBeginCompile_SetNotCompiled
-			test al, al
-			jnz success
-			// fail
-			jmp failAddr //jump here to land in HookEndScriptCompile.
-
-			success:
-			jmp retnAddr
-		}
-	}
-
-	bool __fastcall HookEndScriptCompile_Call(UInt32 success, void* edx)
-	{
-		if (success)
-		{
-			auto* ebp = GetParentBasePtr(_AddressOfReturnAddress());
-			auto* buf = *reinterpret_cast<ScriptBuffer**>(ebp + 0xC);
-
-			ScriptAndScriptBuffer data{ g_currentScriptStack.top(), buf };
-			PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_ScriptCompile, 
-				&data, sizeof(ScriptAndScriptBuffer), nullptr);
-		}
-		PostScriptCompile();
-		return success;
-	}
-
-	__declspec(naked) void HookEndScriptCompile()
-	{
-		__asm
-		{
-			// pass the result, al.
-			movzx ecx, al
-			call HookEndScriptCompile_Call
-			// al still contains the result since the function returns it.
-
-			// do what we overwrote
-			mov esp, ebp
-			pop ebp
-			ret 8
-		}
+		// replaced stuff
+		push ebp
+		mov ebp, esp
+		sub esp, 0x18
+		mov [ebp-0x18], ecx
+		// our stuff
+		mov ecx, [ebp + 0x8] // Script*
+		push ecx
+		mov edx, [ebp+0xC] // ScriptBuffer*
+		push edx
+		call HandleBeginCompile
+		test al, al
+		jnz success
+		// fail
+		mov al, 0
+		mov esp, ebp
+		pop ebp
+		ret 8
+	success:
+		jmp retnAddr
 	}
 }
 
-
-void PatchRuntimeScriptCompile()
+__declspec(naked) void HookEndScriptCompile()
 {
-	// Hooks a Script::SetIsCompiled call at the start of the function.
-	WriteRelCall(0x5AEBB1, reinterpret_cast<UInt32>(Runtime::HookBeginScriptCompile));
-
-	// Hooks the end (epilogue) of the function.
-	WriteRelCall(0x5AEDA0, reinterpret_cast<UInt32>(Runtime::HookEndScriptCompile));
-
-	RemoveScriptDataLimit::WriteHook();
-
-	UInt32 bAlwaysPrintScriptCompilationError = false;
-	GetNVSEConfigOption_UInt32("RELEASE", "bAlwaysPrintScriptCompilationError", &bAlwaysPrintScriptCompilationError);
-	if (bAlwaysPrintScriptCompilationError)
+	__asm
 	{
-		// Replace Console_PrintIfOpen with non-conditional print, in PrintScriptCompileError. 
-		WriteRelCall(0x5AEB36, (UInt32)Console_Print);
+		push eax
+		call PostScriptCompile
+		pop eax
+		mov esp, ebp
+		pop ebp
+		ret 8
 	}
+}
+
+bool __fastcall ScriptCompileHook(void* compiler, void* _EDX, Script* script, ScriptBuffer* scriptBuffer)
+{
+	if (!HandleBeginCompile(scriptBuffer, script))
+		return false;
+	const auto result = ThisStdCall(0x5AEB90, compiler, script, scriptBuffer);
+	if (result)
+	{
+		ScriptAndScriptBuffer data{ script, scriptBuffer };
+		PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_ScriptCompile, &data, sizeof(ScriptAndScriptBuffer), nullptr);
+	}
+	PostScriptCompile();
+	return result;
+}
+
+void PatchScriptCompile()
+{
+	WriteRelCall(0x5AEE9C, reinterpret_cast<UInt32>(ScriptCompileHook));
 }
 
 #endif

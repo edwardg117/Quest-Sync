@@ -23,8 +23,6 @@ struct UserFunctionParam;
 struct FunctionInfo;
 struct FunctionContext;
 class FunctionCaller;
-class OffsetOutOfBoundsError : public std::exception {};
-
 
 #include "ScriptTokens.h"
 #include <stack>
@@ -74,58 +72,24 @@ enum {
 
 #define NVSE_EXPR_MAX_ARGS 20		// max # of args we'll accept to a commmand
 
-using ParamSize_t = UInt8;
-static constexpr ParamSize_t kMaxUdfParams = 15;
-static_assert(kMaxUdfParams <= NVSE_EXPR_MAX_ARGS);
-
 // wraps a dynamic ParamInfo array
 struct DynamicParamInfo
 {
 private:
-	ParamInfo	m_paramInfo[kMaxUdfParams];
-	ParamSize_t	m_numParams;
+	static const UInt32 kMaxParams = 15;	// Should be linked to NVSE_EXPR_MAX_ARGS ?
+
+	ParamInfo	m_paramInfo[kMaxParams];
+	UInt32		m_numParams;
 
 public:
 	DynamicParamInfo(const std::vector<UserFunctionParam> &params);
 	DynamicParamInfo() : m_numParams(0) { }
 
 	ParamInfo* Params()	{	return m_paramInfo;	}
-	[[nodiscard]] ParamSize_t NumParams() const { return m_numParams;	}
+	UInt32 NumParams()	{ return m_numParams;	}
 };
-
-#if RUNTIME
-
-template <typename T>
-concept ArrayElementOrScriptToken = std::is_base_of_v<ArrayElement, T> || std::is_base_of_v<NVSEArrayVarInterface::Element, T> || std::is_base_of_v<ScriptToken, T>;
-
-#endif
 
 struct PluginScriptToken;
-
-// If an ExpressionEvaluator is moved, we want to skip some logic in the destructor
-// This struct avoids having to create a custom move constructor and move assignment operator
-// in Expression Evaluator by having this struct define it's own move operations
-struct MoveContainer
-{
-	bool moved = false;
-
-	MoveContainer() = default;
-
-	MoveContainer(const MoveContainer& other) = delete;
-
-	MoveContainer(MoveContainer&& other) noexcept
-	{
-		other.moved = true;
-	}
-
-	MoveContainer& operator=(const MoveContainer& other) = delete;
-
-	MoveContainer& operator=(MoveContainer&& other) noexcept
-	{
-		other.moved = true;
-		return *this;
-	}
-};
 
 class ExpressionEvaluator
 {
@@ -137,7 +101,7 @@ class ExpressionEvaluator
 		kFlag_ErrorOccurred			= 1 << 1,
 		kFlag_StackTraceOnError		= 1 << 2,
 	};
-	MoveContainer moved_;
+	bool moved_ = false;
 	bool m_pushedOnStack;
 public:
 	Bitfield<UInt32>	 m_flags;
@@ -157,14 +121,19 @@ public:
 	std::vector<std::string> errorMessages;
 
 	ExpressionEvaluator(const ExpressionEvaluator& other) = delete;
+
+	ExpressionEvaluator(ExpressionEvaluator&& other) noexcept;
+
 	ExpressionEvaluator& operator=(const ExpressionEvaluator& other) = delete;
+
+	ExpressionEvaluator& operator=(ExpressionEvaluator&& other) noexcept;
 
 	CommandReturnType GetExpectedReturnType() { CommandReturnType type = m_expectedReturnType; m_expectedReturnType = kRetnType_Default; return type; }
 	bool ParseBytecode(CachedTokens& cachedTokens);
 
 	void PushOnStack();
 	void PopFromStack() const;
-	CachedTokens* GetTokens(std::optional<CachedTokens>* consoleTokensContainer);
+	CachedTokens* GetTokens(std::optional<CachedTokens>* consoleTokens);
 
 	bool m_inline;
 
@@ -180,36 +149,28 @@ public:
 	Script			* script;
 	ScriptEventList	* eventList;
 
-	void						Error(const char* fmt, ...);
-	void						vError(const char* fmt, va_list fmtArgs);
-	[[nodiscard]] bool			HasErrors() const { return m_flags.IsSet(kFlag_ErrorOccurred); }
+	void			Error(const char* fmt, ...);
+	bool			HasErrors() { return m_flags.IsSet(kFlag_ErrorOccurred); }
 
 	// extract args compiled by ExpressionParser
 	bool			ExtractArgs();
-	bool			ExtractArgsV(void*, ...);
-	bool			ExtractArgsV(va_list list);
 
 	// extract args to function which normally uses Cmd_Default_Parse but has been compiled instead by ExpressionParser
 	// bConvertTESForms will be true if invoked from ExtractArgs(), false if from ExtractArgsEx()
 	bool			ExtractDefaultArgs(va_list varArgs, bool bConvertTESForms);
 
 	// convert an extracted argument to type expected by ExtractArgs/Ex() and store in varArgs
-	bool			ConvertDefaultArg(ScriptToken* arg, ParamInfo* info, bool bConvertTESForms, va_list& varArgs) const;
+	bool			ConvertDefaultArg(ScriptToken* arg, ParamInfo* info, bool bConvertTESForms, va_list& varArgs);
 
 	// extract formatted string args compiled with compiler override
 	bool ExtractFormatStringArgs(va_list varArgs, UInt32 fmtStringPos, char* fmtStringOut, UInt32 maxParams);
 
-	std::unique_ptr<ScriptToken> ExecuteCommandToken(ScriptToken const* token, TESObjectREFR* stackRef);
+	ScriptToken*	ExecuteCommandToken(ScriptToken const* token, TESObjectREFR* stackRef);
 	ScriptToken*	Evaluate();			// evaluates a single argument/token
-
-	std::string GetLineText();
 	std::string GetLineText(CachedTokens& tokens, ScriptToken* faultingToken) const;
 	std::string GetVariablesText(CachedTokens& tokens) const;
-	std::string GetVariablesText();
 
-	void ResetCursor();
-
-	[[nodiscard]] ScriptToken*	Arg(UInt32 idx) const
+	ScriptToken*	Arg(UInt32 idx)
 	{
 		if (idx >= m_numArgsExtracted)
 		{
@@ -217,21 +178,14 @@ public:
 		}
 		return m_args[idx];
 	}
-
-	[[nodiscard]] UInt8			NumArgs() const { return m_numArgsExtracted; }
+	UInt8			NumArgs() { return m_numArgsExtracted; }
 	void			SetParams(ParamInfo* newParams)	{	m_params = newParams;	}
 	void			ExpectReturnType(CommandReturnType type) { m_expectedReturnType = type; }
-
-#if RUNTIME
-	template		<ArrayElementOrScriptToken T>
-	void			AssignAmbiguousResult(T &result, CommandReturnType type);
-#endif
-
 	void			ToggleErrorSuppression(bool bSuppress);
 	void			PrintStackTrace();
 
-	[[nodiscard]] TESObjectREFR*	ThisObj() const { return m_thisObj; }
-	[[nodiscard]] TESObjectREFR*	ContainingObj() const { return m_containingObj; }
+	TESObjectREFR*	ThisObj() { return m_thisObj; }
+	TESObjectREFR*	ContainingObj() { return m_containingObj; }
 
 	UInt8*&		Data() { return m_data; }
 	UInt8		ReadByte();
@@ -244,59 +198,17 @@ public:
 	SInt32		ReadSigned32();
 	void ReadBuf(UInt32 len, UInt8* data);
 
-	[[nodiscard]] UInt8* GetCommandOpcodePosition(UInt32* opcodeOffsetPtr) const;
-	[[nodiscard]] CommandInfo* GetCommand() const;
+	UInt8* GetCommandOpcodePosition() const;
+	CommandInfo* GetCommand() const;
 };
 
-
-#if RUNTIME
-
-template <ArrayElementOrScriptToken T>
-void ExpressionEvaluator::AssignAmbiguousResult(T &result, CommandReturnType type)
-{
-	switch (type)
-	{
-	case kRetnType_Default:
-		*m_result = result.GetNumber();
-		//should already expect default result.
-		break;
-	case kRetnType_String:
-		AssignToStringVar(m_params, m_scriptData, ThisObj(), ContainingObj(), script,
-			eventList, m_result, m_opcodeOffsetPtr, result.GetString());
-		ExpectReturnType(kRetnType_String);
-		break;
-	case kRetnType_Form:
-	{
-		UInt32* refResult = (UInt32*)m_result;
-		*refResult = result.GetFormID();
-		ExpectReturnType(kRetnType_Form);
-		break;
-	}
-	case kRetnType_Array:
-		*m_result = result.GetArrayID();
-		ExpectReturnType(kRetnType_Array);
-		break;
-	default:
-		Error("Function call returned unexpected return type %d", type);
-	}
-}
-
 bool BasicTokenToElem(ScriptToken* token, ArrayElement& elem);
-#endif
 
-
-#if RUNTIME
 void* __stdcall ExpressionEvaluatorCreate(COMMAND_ARGS);
 void __fastcall ExpressionEvaluatorDestroy(void *expEval);
 bool __fastcall ExpressionEvaluatorExtractArgs(void *expEval);
 UInt8 __fastcall ExpressionEvaluatorGetNumArgs(void *expEval);
 PluginScriptToken* __fastcall ExpressionEvaluatorGetNthArg(void *expEval, UInt32 argIdx);
-void __fastcall ExpressionEvaluatorSetExpectedReturnType(void* expEval, UInt8 retnType);
-void __fastcall ExpressionEvaluatorAssignCommandResultFromElement(void* expEval, NVSEArrayVarInterface::Element &result);
-bool __fastcall ExpressionEvaluatorExtractArgsV(void* expEval, va_list list);
-void __fastcall ExpressionEvaluatorReportError(void* expEval, const char* fmt, va_list fmtArgs);
-#endif
-
 
 VariableInfo* CreateVariable(Script* script, ScriptBuffer* scriptBuf, const std::string& varName, Script::VariableType varType, const std::function<void(const std::string&)>& printCompileError);
 
@@ -367,15 +279,14 @@ class ExpressionParser
 
 	static ErrOutput::Message	* s_Messages;
 
-	[[nodiscard]] char	Peek(UInt32 idx = -1) const
+	char	Peek(UInt32 idx = -1) const
 	{
 		if (idx == -1)	idx = m_lineBuf->lineOffset;
 		return (idx < m_len) ? m_lineBuf->paramText[idx] : 0;
 	}
-
-	[[nodiscard]] UInt32&	Offset() const { return m_lineBuf->lineOffset; }
-	[[nodiscard]] char* Text() const { return m_lineBuf->paramText; }
-	[[nodiscard]] char* CurText() const { return Text() + Offset(); }
+	UInt32&	Offset() const { return m_lineBuf->lineOffset; }
+	char* Text() const { return m_lineBuf->paramText; }
+	char* CurText() { return Text() + Offset(); }
 
 	void	Message(ScriptLineError errorCode, ...) const;
 
@@ -385,45 +296,39 @@ class ExpressionParser
 	void SaveScriptLine();
 	void RestoreScriptLine();
 	Token_Type		ParseSubExpression(UInt32 exprLen);
-	[[nodiscard]] Operator *		ParseOperator(bool bExpectBinaryOperator, bool bConsumeIfFound = true) const;
-	std::unique_ptr<ScriptToken>	ParseOperand(Operator* curOp = nullptr);
-	std::unique_ptr<ScriptToken>	PeekOperand(UInt32& outReadLen);
+	Operator *		ParseOperator(bool bExpectBinaryOperator, bool bConsumeIfFound = true);
+	ScriptToken	*	ParseOperand(Operator* curOp = NULL);
+	ScriptToken *	PeekOperand(UInt32& outReadLen);
 	bool			HandleMacros();
 	VariableInfo* CreateVariable(const std::string& varName, Script::VariableType varType) const;
-	void SkipSpaces() const;
-	bool			ParseFunctionCall(CommandInfo* cmdInfo) const;
-	Token_Type		PopOperator(std::stack<Operator*> & ops, std::stack<Token_Type> & operands) const;
-	std::unique_ptr<ScriptToken> ParseLambda();
+	void SkipSpaces();
+	bool			ParseFunctionCall(CommandInfo* cmdInfo);
+	Token_Type		PopOperator(std::stack<Operator*> & ops, std::stack<Token_Type> & operands);
+	ScriptToken* ParseLambda();
 
-	UInt32	MatchOpenBracket(Operator* openBracOp) const;
-	[[nodiscard]] std::string GetCurToken() const;
-	VariableInfo* LookupVariable(const char* varName, Script::RefVariable* refVar = nullptr) const;
+	UInt32	MatchOpenBracket(Operator* openBracOp);
+	std::string GetCurToken();
+	VariableInfo* LookupVariable(const char* varName, Script::RefVariable* refVar = NULL);
 
 public:
 	ExpressionParser(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf);
 	~ExpressionParser();
 
 	bool			ParseArgs(ParamInfo* params, UInt32 numParams, bool bUsesNVSEParamTypes = true, bool parseWholeLine = true);
-	[[nodiscard]] bool			ValidateArgType(ParamType paramType, Token_Type argType, bool bIsNVSEParam) const;
+	bool			ValidateArgType(ParamType paramType, Token_Type argType, bool bIsNVSEParam);
 	bool GetUserFunctionParams(const std::vector<std::string>& paramNames, std::vector<UserFunctionParam>& outParams,
-	                           Script::VarInfoList* varList, const std::string& fullScriptText, Script* script) const;
+	                           Script::VarInfoList* varList, const std::string& fullScriptText, Script* script);
 	bool ParseUserFunctionParameters(std::vector<UserFunctionParam>& out, const std::string& funcScriptText,
-	                                 Script::VarInfoList* funcScriptVars, Script* script) const;
-	bool ParseUserFunctionCall();
-	bool ParseUserFunctionDefinition() const;
-	std::unique_ptr<ScriptToken>	ParseOperand(bool (* pred)(ScriptToken* operand));
-	[[nodiscard]] Token_Type		ArgType(UInt32 idx) const { return idx < kMaxArgs ? m_argTypes[idx] : kTokenType_Invalid; }
+	                                 Script::VarInfoList* funcScriptVars, Script* script);
+	bool			ParseUserFunctionCall();
+	bool			ParseUserFunctionDefinition();
+	ScriptToken	*	ParseOperand(bool (* pred)(ScriptToken* operand));
+	Token_Type		ArgType(UInt32 idx) { return idx < kMaxArgs ? m_argTypes[idx] : kTokenType_Invalid; }
 	Token_Type ParseArgument(UInt32 argsEndPos);
 	ParamParenthResult ParseParentheses(ParamInfo* paramInfo, UInt32 paramIndex);
 };
 
-#if RUNTIME
-// If eval is null, will call ShowRuntimeError().
-// Otherwise reports the error via eval.Error().
-// Less efficient, but easier to write.
-void ShowRuntimeScriptError(Script* script, ExpressionEvaluator* eval, const char* fmt, ...);
-#endif
-
+void ShowRuntimeError(Script* script, const char* fmt, ...);
 bool PrecompileScript(ScriptBuffer* buf);
 
 // NVSE analogue for Cmd_Default_Parse, accepts expressions as args

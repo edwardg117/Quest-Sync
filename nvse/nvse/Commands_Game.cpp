@@ -198,7 +198,10 @@ bool Cmd_GetSourceModIndex_Execute(COMMAND_ARGS)
 	
 	if (form)
 	{
-		*result = (UInt8)(form->refID >> 24);
+		if (form->IsCloned())
+			*result = 0xFF;
+		else
+			*result = (UInt8)(form->refID >> 24);
 	}
 
 	return true;

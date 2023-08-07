@@ -33,7 +33,6 @@
 #include "Commands_Array.h"
 #include "Commands_String.h"
 #include "Commands_Algohol.h"
-#include "Commands_Quest.h"
 
 CommandTable g_consoleCommands;
 CommandTable g_scriptCommands;
@@ -609,8 +608,6 @@ const char *SimpleStringForParamType(UInt32 paramType)
 		return "ref";
 	case kParamType_EncounterZone:
 		return "ref";
-	case kParamType_IdleForm:
-		return "ref";
 	case kParamType_Message:
 		return "ref";
 	case kParamType_InvObjOrFormList:
@@ -1083,7 +1080,6 @@ void CommandTable::AddCommandsV1()
 	g_scriptCommands.SetReturnType(0x11CF, kRetnType_Form); // GetPlayerGrabbedRef
 	g_scriptCommands.SetReturnType(0x124E, kRetnType_Form); // GetOwnerLastTarget
 	g_scriptCommands.SetReturnType(0x1265, kRetnType_Form); // ObjectUnderTheReticule
-	g_scriptCommands.SetReturnType(0x11D1, kRetnType_Form); // PlaceLeveledActorAtMe
 
 	RecordReleaseVersion();
 
@@ -1107,7 +1103,7 @@ void CommandTable::AddCommandsV1()
 	ADD_CMD(GetWeaponType);
 	ADD_CMD(GetWeaponMinSpread);
 	ADD_CMD(GetWeaponSpread);
-	ADD_CMD_RET(GetWeaponProjectile, kRetnType_Form);
+	ADD_CMD(GetWeaponProjectile);
 	ADD_CMD(GetWeaponSightFOV);
 	ADD_CMD(GetWeaponMinRange);
 	ADD_CMD(GetWeaponMaxRange);
@@ -1115,7 +1111,7 @@ void CommandTable::AddCommandsV1()
 	ADD_CMD(GetWeaponActionPoints);
 	ADD_CMD(GetWeaponCritDamage);
 	ADD_CMD(GetWeaponCritChance);
-	ADD_CMD_RET(GetWeaponCritEffect, kRetnType_Form);
+	ADD_CMD(GetWeaponCritEffect);
 	ADD_CMD(GetWeaponFireRate);
 	ADD_CMD(GetWeaponAnimAttackMult);
 	ADD_CMD(GetWeaponRumbleLeftMotor);
@@ -1165,7 +1161,7 @@ void CommandTable::AddCommandsV1()
 	ADD_CMD(GetEquippedCurrentHealth);
 	ADD_CMD(CompareNames);
 	ADD_CMD(SetName);
-	ADD_CMD_RET(GetHotkeyItem, kRetnType_Form);
+	ADD_CMD(GetHotkeyItem);
 	ADD_CMD(GetNumItems);
 	ADD_CMD_RET(GetInventoryObject, kRetnType_Form);
 	ADD_CMD(SetEquippedCurrentHealth);
@@ -1263,12 +1259,12 @@ void CommandTable::AddCommandsV1()
 	ImportConsoleCommand("TFC"); // changed from ToggleFreeCamera
 	ImportConsoleCommand("TCL"); // changed from ToggleCollision
 	ADD_CMD(GetGameLoaded);
-	ADD_CMD_RET(GetWeaponItemMod, kRetnType_Form);
+	ADD_CMD(GetWeaponItemMod);
 	ADD_CMD(IsModLoaded);
 	ADD_CMD(GetModIndex);
 	ADD_CMD(GetNumLoadedMods);
 	ADD_CMD(GetSourceModIndex);
-	ADD_CMD_RET(GetDebugSelection, kRetnType_Form);
+	ADD_CMD(GetDebugSelection);
 	ADD_CMD(GetArmorDT);
 	ADD_CMD(SetArmorAR);
 	ADD_CMD(SetArmorDT);
@@ -1292,10 +1288,10 @@ void CommandTable::AddCommandsV1()
 	ADD_CMD(SetWeaponSkill);
 	ADD_CMD(GetAmmoSpeed);
 	ADD_CMD(GetAmmoConsumedPercent);
-	ADD_CMD_RET(GetAmmoCasing, kRetnType_Form);
+	ADD_CMD(GetAmmoCasing);
 	ADD_CMD(GetPlayerCurrentAmmoRounds);
 	ADD_CMD(SetPlayerCurrentAmmoRounds);
-	ADD_CMD_RET(GetPlayerCurrentAmmo, kRetnType_Form);
+	ADD_CMD(GetPlayerCurrentAmmo);
 
 	// beta 6 - compat with 1.2.0.314
 	ADD_CMD_RET(GetOpenKey, kRetnType_Form);
@@ -1469,7 +1465,7 @@ void CommandTable::AddCommandsV4()
 	// 4.1 beta 01 - subset of CommandScripts from OBSE 21 beta 4
 	ADD_CMD(GetVariable);
 	ADD_CMD(HasVariable);
-	ADD_CMD_RET(GetRefVariable, kRetnType_Form);
+	ADD_CMD(GetRefVariable);
 	ADD_CMD_RET(GetArrayVariable, kRetnType_Array); // corrected in version 4.5 Beta 7
 	ADD_CMD(CompareScripts);
 	ADD_CMD(ResetAllVariables);
@@ -1561,7 +1557,7 @@ void CommandTable::AddCommandsV4()
 	ADD_CMD(ToUpper);
 	ADD_CMD(ToLower);
 	ADD_CMD_RET(AsciiToChar, kRetnType_String);
-	ADD_CMD_RET(NumToHex_OLD, kRetnType_String);
+	ADD_CMD_RET(NumToHex, kRetnType_String);
 	ADD_CMD(ToNumber);
 
 	ADD_CMD_RET(GetNthModName, kRetnType_String);
@@ -1786,9 +1782,9 @@ void CommandTable::AddCommandsV6()
 	ADD_CMD(SetUIStringAlt);
 
 	// 6.1 beta 00
-	ADD_CMD(CallAfterSeconds_OLD);
-	ADD_CMD(CallWhile_OLD);
-	ADD_CMD(CallForSeconds_OLD);
+	ADD_CMD(CallAfterSeconds);
+	ADD_CMD(CallWhile);
+	ADD_CMD(CallForSeconds);
 	ADD_CMD(ar_DumpF);
 
 	// 6.1 beta 03
@@ -1819,52 +1815,7 @@ void CommandTable::AddCommandsV6()
 	ADD_CMD(CallFunctionCond);
 
 	// 6.2 beta 04
-	ADD_CMD(CallWhen_OLD);
-
-	// 6.2 beta 05
-	ADD_CMD(ForEachInList);
-	ADD_CMD_RET(Ternary, kRetnType_Ambiguous);
-	ADD_CMD(ModUIFloat);
-	ADD_CMD(GetQuestObjectiveCount);
-	ADD_CMD(GetNthQuestObjective);
-	ADD_CMD(GetCurrentObjective);
-	ADD_CMD(PrintActiveTile);
-	ADD_CMD(SetCurrentQuest);
-
-	// 6.2 beta 06
-	ADD_CMD(sv_Trim);
-	ADD_CMD(CallAfterSeconds);
-	ADD_CMD(CallForSeconds);
-	ADD_CMD(CallWhile);
 	ADD_CMD(CallWhen);
-	ADD_CMD(SetEditorID);
-
-	// 6.2 beta 08
-	ADD_CMD(Assert);
-	ADD_CMD(DispatchEventAlt);
-	ADD_CMD(DumpEventHandlers);
-	ADD_CMD_RET(GetEventHandlers, kRetnType_Array);
-	ADD_CMD_RET(GetSelfAlt, kRetnType_Form);
-	ADD_CMD(SetEventHandlerAlt);
-	ADD_CMD_RET(CreateFormList, kRetnType_Form);
-	ADD_CMD(CallWhilePerSeconds);
-	ADD_CMD(CallAfterFrames);
-	ADD_CMD_RET(GetSoldItemInvRef, kRetnType_Form);
-
-	// 6.2 beta 09
-	ADD_CMD(IsEventHandlerFirst);
-	ADD_CMD(IsEventHandlerLast);
-	ADD_CMD_RET(GetHigherPriorityEventHandlers, kRetnType_Array);
-	ADD_CMD_RET(GetLowerPriorityEventHandlers, kRetnType_Array);
-	ADD_CMD(ValidateRegex);
-	ADD_CMD_RET(IntToBin, kRetnType_String);
-	ADD_CMD_RET(NumToHex, kRetnType_String);
-
-	// 6.3 beta 00
-	ADD_CMD(HasAmmoEquipped);
-	ADD_CMD(GetEquippedWeaponCanUseAmmo);
-	ADD_CMD(IsEquippedAmmoInList);
-	ADD_CMD(GetEquippedWeaponUsesAmmoList);
 }
 
 namespace PluginAPI

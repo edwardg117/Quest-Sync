@@ -118,7 +118,7 @@ namespace ScriptParsing
 	{
 	public:
 		ScriptCommandCall(const ScriptIterator& contextParam);
-		std::unique_ptr<CommandCallToken> commandCallToken{ nullptr };
+		std::unique_ptr<CommandCallToken> commandCallToken = nullptr;
 
 		std::string ToString() override;
 	};
@@ -142,7 +142,7 @@ namespace ScriptParsing
 	public:
 		CommandInfo* eventBlockCmd;
 		UInt32 endJumpLength;
-		std::unique_ptr<CommandCallToken> commandCallToken{ nullptr };
+		std::unique_ptr<CommandCallToken> commandCallToken = nullptr;;
 		BeginStatement(const ScriptIterator& contextParam);
 
 		std::string ToString() override;
@@ -241,8 +241,7 @@ namespace ScriptParsing
 	class InlineExpressionToken : public OperandToken
 	{
 	public:
-		~InlineExpressionToken();
-		std::unique_ptr<ExpressionEvaluator> eval;
+		std::unique_ptr<ExpressionEvaluator> eval = nullptr;
 		CachedTokens* tokens;
 
 		InlineExpressionToken(ScriptIterator& context);
@@ -254,18 +253,15 @@ namespace ScriptParsing
 	{
 		bool ParseGameArgs(ScriptIterator& context, UInt32 numArgs);
 	public:
-		~CommandCallToken();
-
 		int opcode = -1;
 		CommandInfo* cmdInfo;
-		std::unique_ptr<RefToken> callingReference;
+		std::unique_ptr<RefToken> callingReference = nullptr;
 		
 		std::vector<std::unique_ptr<OperandToken>> args;
 
-		std::unique_ptr<ExpressionEvaluator> expressionEvaluator;
+		std::unique_ptr<ExpressionEvaluator> expressionEvaluator = nullptr;
 		std::vector<CachedTokens*> expressionEvalArgs;
 
-		CommandCallToken(CommandCallToken&& other) = default;
 		CommandCallToken(const ScriptIterator& context);
 		CommandCallToken(CommandInfo* cmdInfo, UInt32 opcode, Script::RefVariable* callingRef, Script* script);
 
@@ -291,7 +287,7 @@ namespace ScriptParsing
 	{
 	public:
 		char type = 0;
-		std::unique_ptr<OperandToken> toVariable;
+		std::unique_ptr<OperandToken> toVariable = nullptr;
 		Expression expression;
 
 		explicit SetToStatement(const ScriptIterator& contextParam);

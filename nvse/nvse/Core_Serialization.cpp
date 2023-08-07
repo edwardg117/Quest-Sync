@@ -6,7 +6,6 @@
 #include "StringVar.h"
 #include "ArrayVar.h"
 #include "Commands_Script.h"
-#include "EventManager.h"
 #include "ScriptTokens.h"
 
 /*************************
@@ -118,8 +117,10 @@ void Core_PreLoadCallback(void * reserved)
 	g_nvseVarGarbageCollectionMap.Clear();
 	g_gcCriticalSection.Leave();
 
-	ClearDelayedCalls();
-	EventManager::ClearFlushOnLoadEventHandlers();
+	g_callWhileInfos.clear();
+	g_callForInfos.clear();
+	g_callAfterInfos.clear();
+	g_callWhenInfos.clear();
 	
 	g_ArrayMap.Reset();
 	g_StringMap.Reset();

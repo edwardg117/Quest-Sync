@@ -45,9 +45,6 @@ bool GetNVSEConfigOption_UInt32(const char * section, const char * key, UInt32 *
 // ConsolePrint() limited to 512 chars; use this to print longer strings to console
 void Console_Print_Long(const std::string& str);
 
-// Calls Print_Long or Print depending on the size of the string.
-void Console_Print_Str(const std::string& str);
-
 // Macro for debug output to console at runtime
 #if RUNTIME
 #ifdef _DEBUG
@@ -109,7 +106,7 @@ class Tokenizer
 {
 public:
 	Tokenizer(const char* src, const char* delims);
-	~Tokenizer() = default;
+	~Tokenizer();
 
 	// these return the offset of token in src, or -1 if no token
 	UInt32 NextToken(std::string& outStr);
@@ -120,32 +117,6 @@ private:
 	std::string m_delims;
 	size_t		m_offset;
 	std::string m_data;
-};
-
-
-// For parsing lexical tokens inside script text line-by-line, while skipping over those inside comments.
-// Comments are passed as a single token (including the '"' characters).
-// Everything else will have to be manually handled.
-class ScriptTokenizer
-{
-public:
-	ScriptTokenizer(std::string_view scriptText);
-	~ScriptTokenizer() = default;
-
-	// Returns true if a new line could be read, false at the end of the script.
-	// Skips over commented-out lines.
-	[[nodiscard]] bool TryLoadNextLine();
-
-	// Gets the next space-separated token from the loaded line, ignoring tokens placed inside comments.
-	// Returns an empty string_view if no line is loaded / end-of-line is reached.
-	std::string_view GetNextLineToken();
-
-private:
-	std::string_view m_scriptText;
-	size_t			 m_scriptOffset = 0;
-	std::vector<std::string_view> m_loadedLineTokens;
-	size_t			 m_tokenOffset = 0;
-	bool			 m_inMultilineComment = false;
 };
 
 #if RUNTIME
@@ -329,10 +300,4 @@ std::string& ToLower(std::string&& data);
 std::string& StripSpace(std::string&& data);
 std::vector<std::string> SplitString(std::string s, std::string delimiter);
 
-#define INLINE_HOOK(retnType, callingConv, ...) static_cast<retnType(callingConv*)(__VA_ARGS__)>([](__VA_ARGS__) [[msvc::forceinline]] -> retnType
-
-UInt8* GetParentBasePtr(void* addressOfReturnAddress, bool lambda = false);
-
-//Example in https://en.cppreference.com/w/cpp/utility/variant/visit
-//Allows function overloading with c++ lambdas.
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+#define INLINE_HOOK(retnType, callingConv, ...) static_cast<retnType(callingConv*)(__VA_ARGS__)>([](__VA_ARGS__)

@@ -1,6 +1,4 @@
 #include "Commands_List.h"
-
-#include "FunctionScripts.h"
 #include "GameForms.h"
 #include "GameRTTI.h"
 #include "GameObjects.h"
@@ -53,7 +51,7 @@ bool Cmd_ListGetNthForm_Execute(COMMAND_ARGS)
 {
 	*result = 0;
 	BGSListForm* pListForm = NULL;
-	SInt32 n = 0;
+	UInt32 n = 0;
 
 #if REPORT_BAD_FORMLISTS
 	__try {
@@ -92,17 +90,18 @@ bool Cmd_ListAddForm_Execute(COMMAND_ARGS)
 	*result = eListInvalid;
 	BGSListForm* pListForm = NULL;
 	TESForm* pForm = NULL;
-	SInt32 n = eListEnd;
-	UInt32 bCheckForDupes = false;
+	UInt32 n = eListEnd;
 
 #if REPORT_BAD_FORMLISTS
 	__try {
 #endif
 
-	ExtractArgsEx(EXTRACT_ARGS_EX, &pListForm, &pForm, &n, &bCheckForDupes);
+	ExtractArgsEx(EXTRACT_ARGS_EX, &pListForm, &pForm, &n);
 	if (pListForm && pForm) {
-		auto const index = pListForm->AddAt(pForm, n, bCheckForDupes);
-		*result = index;
+		UInt32 index = pListForm->AddAt(pForm, n);
+		if (index != eListInvalid) {
+			*result = index;
+		}
 		if (IsConsoleMode()) {
 			Console_Print("Index: %d", index);
 		}
@@ -121,19 +120,20 @@ bool Cmd_ListAddForm_Execute(COMMAND_ARGS)
 bool Cmd_ListAddReference_Execute(COMMAND_ARGS)
 {
 	*result = eListInvalid;
-	BGSListForm* pListForm = nullptr;
-	SInt32 n = eListEnd;
-	UInt32 bCheckForDupes = false;
-	
+	BGSListForm* pListForm = NULL;
+	UInt32 n = eListEnd;
+
 #if REPORT_BAD_FORMLISTS
 	__try {
 #endif
 
-	if (ExtractArgs(EXTRACT_ARGS, &pListForm, &n, &bCheckForDupes)) {
+	if (ExtractArgs(EXTRACT_ARGS, &pListForm, &n)) {
 		if (!pListForm || !thisObj) return true;
 
-		auto const index = pListForm->AddAt(thisObj, n, bCheckForDupes);
-		*result = index;
+		UInt32 index = pListForm->AddAt(thisObj, n);
+		if (index != eListInvalid) {
+			*result = index;
+		}
 		if (IsConsoleMode()) {
 			Console_Print("Index: %d", index);
 		}
@@ -154,8 +154,8 @@ bool Cmd_ListRemoveNthForm_Execute(COMMAND_ARGS)
 	UInt32* refResult = (UInt32*)result;
 	*refResult = 0;
 
-	BGSListForm* pListForm = nullptr;
-	SInt32 n = eListEnd;
+	BGSListForm* pListForm = NULL;
+	UInt32 n = eListEnd;
 
 #if REPORT_BAD_FORMLISTS
 	__try {
@@ -187,7 +187,7 @@ bool Cmd_ListReplaceNthForm_Execute(COMMAND_ARGS)
 
 	BGSListForm* pListForm = NULL;
 	TESForm* pReplaceWith = NULL;
-	SInt32 n = eListEnd;
+	UInt32 n = eListEnd;
 
 #if REPORT_BAD_FORMLISTS
 	__try {
@@ -386,43 +386,5 @@ bool Cmd_IsRefInList_Execute(COMMAND_ARGS)
 	}
 #endif
 
-	return true;
-}
-
-
-struct ListFunctionContext
-{
-	BGSListForm* list = nullptr;
-	Script* func = nullptr;
-};
-
-bool ExtractListFunctionContext(ListFunctionContext& ctx, COMMAND_ARGS)
-{
-	if (!ExtractArgs(EXTRACT_ARGS, &ctx.list, &ctx.func))
-		return false;
-
-	if (!ctx.list || !ctx.func)
-		return false;
-
-	if (!IS_ID(ctx.list, BGSListForm) || !IS_ID(ctx.func, Script))
-		return false;
-	
-	return true;
-}
-
-bool Cmd_ForEachInList_Execute(COMMAND_ARGS)
-{
-	*result = false;	// result = bSuccess
-	ListFunctionContext ctx;
-	if (!ExtractListFunctionContext(ctx, PASS_COMMAND_ARGS))
-		return true;
-	auto& [list, functionScript] = ctx;
-	for (auto iter = list->list.Begin(); !iter.End(); ++iter)
-	{
-		InternalFunctionCaller caller(functionScript, thisObj, containingObj);
-		caller.SetArgs(1, iter.Get());
-		auto tokenResult = UserFunctionManager::Call(std::move(caller));
-	}
-	*result = true;
 	return true;
 }

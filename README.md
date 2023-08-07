@@ -11,9 +11,7 @@
 
 [Download the latest NVSE](https://github.com/xNVSE/NVSE/releases)
 
--Changelogs and all releases are provided in the [releases section](https://github.com/xNVSE/NVSE/releases). Do not try to install using the Code .zip source code button GitHub shows.
-
-Releases are also available on [Nexus Mods](https://www.nexusmods.com/newvegas/mods/67883).
+Changelogs and all releases are provided in the [releases section](https://github.com/xNVSE/NVSE/releases). Do not try to install using the Code .zip source code button GitHub shows.
 
 ## Installation
 
@@ -21,7 +19,7 @@ Releases are also available on [Nexus Mods](https://www.nexusmods.com/newvegas/m
 
 2. Launch NV via running *nvse_loader.exe* or, if you have patched the game using [FNV 4GB Patcher](https://www.nexusmods.com/newvegas/mods/62552/), *FalloutNV.exe*. Enabling the Steam Community option (enabled by default) will allow you to launch the game via Steam's standard UI.
 
-xNVSE is compatible with the Steam and GOG versions of the game. German No Gore, Xbox Gamepass and Bethesda.net versions are not supported.
+xNVSE is compatible with the Steam and GOG versions of the game. German No Gore, Xbox Gamepass and Bethesda.net versions are not supported. 
 
 ## Support
 
@@ -36,10 +34,10 @@ For documentation on how to write scripts utilizing NVSE, see [GECK Wiki](https:
 
 ## Credits
 
-The original NVSE was created and maintained by *Ian Patterson*,
+The original NVSE was created and maintained by *Ian Patterson*, 
 *Stephen Abel*, *Paul Connelly*, and *Hugues LE PORS*
 (ianpatt, behippo, scruggsywuggsy the ferret, and hlp)
 
-xNVSE is developed by *korri123* (Kormákur), *jazzisparis*, and *Demorome*.
+xNVSE is developed by *korri123* (Kormákur) and *jazzisparis*.
 
-xNVSE has contributions from *lStewieAl*, *c6* and *carxt*
+xNVSE has contributions from *Demorome*, *lStewieAl*, *c6* and *carxt*

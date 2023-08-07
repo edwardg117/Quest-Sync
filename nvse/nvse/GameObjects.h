@@ -4,7 +4,6 @@
 #include "GameBSExtraData.h"
 #include "GameExtraData.h"
 #include "GameProcess.h"
-#include "NiPoint.h"
 
 class TESObjectCELL;
 struct ScriptEventList;
@@ -82,7 +81,7 @@ public:
 	virtual ValidBip01Names * GetValidBip01Names(void);	// 007A	Character only
 	virtual ValidBip01Names * CallGetValidBip01Names(void);
 	virtual void		SetValidBip01Names(ValidBip01Names validBip01Names);
-	virtual NiPoint3*	GetPos(void) const;				// GetPos or GetDistance
+	virtual void		GetPos(void);				// GetPos or GetDistance
 	virtual void		Unk_7E(UInt32 arg0);
 	virtual void		Unk_7F(void);
 	virtual void		Unk_80(UInt32 arg0);
@@ -161,8 +160,6 @@ public:
 	bool GetInventoryItems(InventoryItemsMap &invItems);
 	ExtraDroppedItemList* GetDroppedItems();
 
-	double GetHeadingAngle(const TESObjectREFR* to) const;
-
 	static TESObjectREFR* Create(bool bTemp = false);
 
 	MEMBER_FN_PREFIX(TESObjectREFR);
@@ -173,9 +170,6 @@ public:
 };
 
 TESForm* GetPermanentBaseForm(TESObjectREFR* thisObj);	// For LevelledForm, find real baseForm, not temporary one.
-
-// Taken from JIP LN NVSE.
-float __vectorcall GetDistance3D(const TESObjectREFR* ref1, const TESObjectREFR* ref2);
 
 STATIC_ASSERT(offsetof(TESObjectREFR, baseForm) == 0x020);
 STATIC_ASSERT(offsetof(TESObjectREFR, extraDataList) == 0x044);
@@ -221,7 +215,7 @@ public:
 	virtual void		Unk_AC(void);
 	virtual void		Unk_AD(void);
 	virtual void		Unk_AE(void);
-	virtual float		AdjustRot(UInt32 arg1);
+	virtual void		Unk_AF(void);
 	virtual void		Unk_B0(void);
 	virtual void		Unk_B1(void);
 	virtual void		Unk_B2(void);
@@ -522,9 +516,6 @@ public:
 	EquippedItemsList	GetEquippedItems();
 	ExtraContainerDataArray	GetEquippedEntryDataList();
 	ExtraContainerExtendDataArray GetEquippedExtendDataList();
-
-	// Copied from JIP.
-	TESObjectWEAP* GetEquippedWeapon() const;
 };
 
 STATIC_ASSERT(offsetof(Actor, magicCaster) == 0x088);

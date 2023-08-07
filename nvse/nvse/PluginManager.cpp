@@ -1,5 +1,4 @@
 #include "PluginManager.h"
-
 #include "CommandTable.h"
 #include "common/IDirectoryIterator.h"
 #include "ParamInfos.h"
@@ -22,9 +21,6 @@
 #else
 #include "Hooks_Script.h"
 #endif
-
-#include <filesystem>
-extern std::filesystem::path g_pluginLogPath;
 
 PluginManager	g_pluginManager;
 
@@ -65,9 +61,7 @@ static NVSEScriptInterface g_NVSEScriptInterface =
 	UserFunctionManager::GetFunctionParamTypes,
 	ExtractArgsEx,
 	ExtractFormatStringArgs,
-	PluginAPI::CallFunctionScriptAlt,
-	CompileScript,
-	CompileExpression
+	PluginAPI::CallFunctionScriptAlt
 };
 
 #endif
@@ -136,31 +130,10 @@ static const NVSEDataInterface g_NVSEDataInterface =
 };
 #endif
 
-#ifdef RUNTIME
-static const NVSEEventManagerInterface g_NVSEEventManagerInterface =
+PluginManager::PluginManager()
 {
-	EventManager::RegisterEvent,
-	EventManager::DispatchEvent,
-	EventManager::DispatchEventAlt,
-	EventManager::SetNativeEventHandler,
-	EventManager::RemoveNativeEventHandler,
-	EventManager::RegisterEventWithAlias,
-	EventManager::DispatchEventThreadSafe,
-	EventManager::DispatchEventAltThreadSafe,
-	EventManager::SetNativeHandlerFunctionValue,
-	EventManager::SetNativeEventHandlerWithPriority,
-	EventManager::RemoveNativeEventHandlerWithPriority,
-	EventManager::ExportedToPlugins::IsEventHandlerFirst,
-	EventManager::ExportedToPlugins::IsEventHandlerLast,
-	EventManager::ExportedToPlugins::GetHigherPriorityEventHandlers,
-	EventManager::ExportedToPlugins::GetLowerPriorityEventHandlers
-};
-#endif
-
-static const NVSELoggingInterface g_NVSELoggingInterface =
-{
-	g_pluginLogPath.c_str()
-};
+	//
+}
 
 PluginManager::~PluginManager()
 {
@@ -394,34 +367,29 @@ void * PluginManager::QueryInterface(UInt32 id)
 		break;
 
 	case kInterface_StringVar:
-		result = (void *)&g_NVSEStringVarInterface;
-		break;
+			result = (void *)&g_NVSEStringVarInterface;
+			break;
 
 	case kInterface_ArrayVar:
-		result = (void*)&g_NVSEArrayVarInterface;
-		break;
+			result = (void*)&g_NVSEArrayVarInterface;
+			break;
 
 	case kInterface_Script:
-		result = (void *)&g_NVSEScriptInterface;
-		break;
+			result = (void *)&g_NVSEScriptInterface;
+			break;
 	case kInterface_Data:
-		result = (void *)&g_NVSEDataInterface;
-		break;
+			result = (void *)&g_NVSEDataInterface;
+			break;
 #endif
+
 	case kInterface_Messaging:
 		result = (void *)&g_NVSEMessagingInterface;
 		break;
+
 	case kInterface_CommandTable:
 		result = (void*)&g_NVSECommandTableInterface;
 		break;
-#if RUNTIME
-	case kInterface_EventManager:
-		result = (void*)&g_NVSEEventManagerInterface;
-		break;
-#endif
-	case kInterface_LoggingInterface:
-		result = (void*)&g_NVSELoggingInterface;
-		break;
+
 	default:
 		_WARNING("unknown QueryInterface %08X", id);
 		break;
@@ -464,14 +432,6 @@ void PluginManager::InitExpressionEvaluatorUtils(ExpressionEvaluatorUtils *utils
 	utils->ScriptTokenGetPair = ScriptTokenGetPair;
 	utils->ScriptTokenGetSlice = ScriptTokenGetSlice;
 	utils->ScriptTokenGetAnimationGroup = ScriptTokenGetAnimationGroup;
-
-	utils->SetExpectedReturnType = ExpressionEvaluatorSetExpectedReturnType;
-	utils->AssignCommandResultFromElement = ExpressionEvaluatorAssignCommandResultFromElement;
-	utils->ScriptTokenGetElement = ScriptTokenGetArrayElement;
-	utils->ScriptTokenCanConvertTo = ScriptTokenCanConvertTo;
-	utils->ExtractArgsV = ExpressionEvaluatorExtractArgsV;
-
-	utils->ReportError = ExpressionEvaluatorReportError;
 #endif
 }
 
@@ -507,85 +467,83 @@ std::string GetLastErrorAsString()
 	return message;
 }
 
-PluginManager::PluginLoadState::~PluginLoadState()
+#define LOAD_EXCEPTION_BUFFER_LEN 70
+bool PluginManager::InstallPlugin(std::string pluginPath)
 {
-	const bool success = querySuccess && loadSuccess;
-	if (success)
-		loadStatus = "loaded correctly";
-	if (loadStatus.empty())
-		loadStatus = "was not loaded for an unknown reason"; // shouldn't happen
-	_MESSAGE("plugin %s (%08X %s %08X) %s",
-		plugin.path,
-		plugin.info.infoVersion,
-		plugin.info.name ? plugin.info.name : "<NULL>",
-		plugin.info.version,
-		loadStatus.c_str());
-	if (!success)
-		FreeLibrary(plugin.handle);
-}
+	_MESSAGE("checking plugin %s", pluginPath.c_str());
 
-bool PluginManager::InstallPlugins(const std::vector<std::string>& pluginPaths)
-{
-	// first query all plugins, then load all plugins
-	std::list<PluginLoadState> queriedPlugins;
-	int index = 0;
-	for (auto& pluginPath : pluginPaths)
+	LoadedPlugin	plugin;
+	memset(&plugin, 0, sizeof(plugin));
+
+	s_currentLoadingPlugin = &plugin;
+	s_currentPluginHandle = m_plugins.size() + 1;	// +1 because 0 is reserved for internal use
+
+	plugin.handle = (HMODULE)LoadLibrary(pluginPath.c_str());
+	if(plugin.handle)
 	{
-		++index;
-		_MESSAGE("checking plugin %s", pluginPath.c_str());
+		bool success = false;
 
-		auto& pluginStatus = queriedPlugins.emplace_back();
-		auto& plugin = pluginStatus.plugin;
-		strcpy_s(plugin.path, MAX_PATH, pluginPath.c_str());
+		plugin.query = (_NVSEPlugin_Query)GetProcAddress(plugin.handle, "NVSEPlugin_Query");
+		plugin.load = (_NVSEPlugin_Load)GetProcAddress(plugin.handle, "NVSEPlugin_Load");
 
-		s_currentLoadingPlugin = &plugin;
-		s_currentPluginHandle = index;	// +1 because 0 is reserved for internal use
-
-		plugin.handle = LoadLibrary(pluginPath.c_str());
-		if(plugin.handle)
+		if(plugin.query && plugin.load)
 		{
-			plugin.query = (_NVSEPlugin_Query)GetProcAddress(plugin.handle, "NVSEPlugin_Query");
-			plugin.load = (_NVSEPlugin_Load)GetProcAddress(plugin.handle, "NVSEPlugin_Load");
+			const char	* loadStatus = NULL;
+			char buf[LOAD_EXCEPTION_BUFFER_LEN];
+			loadStatus = SafeCallQueryPlugin(&plugin, &g_NVSEInterface, buf);
 
-			if(plugin.query && plugin.load)
+			if(!loadStatus)
 			{
-				pluginStatus.loadStatus = SafeCallQueryPlugin(&plugin, &g_NVSEInterface);
-				if (pluginStatus.loadStatus.empty())
-					pluginStatus.querySuccess = true;
-				continue;
+				loadStatus = CheckPluginCompatibility(&plugin);
+
+				if(!loadStatus)
+				{
+					loadStatus = SafeCallLoadPlugin(&plugin, &g_NVSEInterface, buf);
+
+					if(!loadStatus)
+					{
+						strcpy_s(plugin.path, MAX_PATH, pluginPath.c_str());
+						loadStatus = "loaded correctly";
+						success = true;
+					}
+				}
 			}
-			pluginStatus.loadStatus = "was not loaded as it does not appear to be an NVSE plugin (NVSE plugins must export NVSEPlugin_Query and NVSEPlugin_Load)";
+			else
+			{
+				loadStatus = "reported as incompatible during query";
+			}
+
+			ASSERT(loadStatus);
+
+			_MESSAGE("plugin %s (%08X %s %08X) %s",
+				pluginPath.c_str(),
+				plugin.info.infoVersion,
+				plugin.info.name ? plugin.info.name : "<NULL>",
+				plugin.info.version,
+				loadStatus);
 		}
-		pluginStatus.loadStatus = FormatString("couldn't be loaded due to an error (win32 error code: %d message: \"%s\")", GetLastError(), GetLastErrorAsString().c_str());
-	}
-
-	Dispatch_Message(0, NVSEMessagingInterface::kMessage_PostQueryPlugins, NULL, 0, NULL);
-	index = 0;
-	for (auto& pluginState : queriedPlugins)
-	{
-		if (!pluginState.querySuccess) 
-			continue; // error
-
-		auto& plugin = pluginState.plugin;
-		pluginState.loadStatus = CheckPluginCompatibility(&plugin);
-
-		if (!pluginState.loadStatus.empty())
-			continue; // another error
-		++index;
-		s_currentLoadingPlugin = &plugin;
-		s_currentPluginHandle = index;	// +1 because 0 is reserved for internal use
-
-		pluginState.loadStatus = SafeCallLoadPlugin(&plugin, &g_NVSEInterface);
-		if (pluginState.loadStatus.empty())
+		else
 		{
-			pluginState.loadSuccess = true;
-			pluginState.loadStatus = "loaded correctly";
+			_MESSAGE("plugin %s does not appear to be an NVSE plugin", pluginPath.c_str());
+		}
+
+		if(success)
+		{
 			// succeeded, add it to the list
 			m_plugins.push_back(plugin);
 		}
+		else
+		{
+			// failed, unload the library
+			FreeLibrary(plugin.handle);
+		}
+		return success;
 	}
-
-	return true;
+	else
+	{
+		_ERROR("couldn't load plugin %s (win32 error code: %d message: \"%s\")", pluginPath.c_str(), GetLastError(), GetLastErrorAsString().c_str());
+		return false;
+	}
 }
 
 _GetLNEventMask GetLNEventMask = nullptr;
@@ -595,21 +553,27 @@ _ProcessLNEventHandler ProcessLNEventHandler = nullptr;
 
 void PluginManager::InstallPlugins(void)
 {
+	UInt32 nFound;
+
 #if NO_PLUGINS
 	return;
 #endif
 	// avoid realloc
 	m_plugins.reserve(5);
 
-	std::vector<std::string> pluginPaths;
-	for (IDirectoryIterator iter(m_pluginDirectory.c_str(), "*.dll"); !iter.Done(); iter.Next())
+	do // for Mod manager like Mod Organizer that could modify the visible plugins by loading their own plugin.
 	{
-		std::string	pluginPath = iter.GetFullPath();
-		pluginPaths.push_back(std::move(pluginPath));
+		nFound = 0;
+		for(IDirectoryIterator iter(m_pluginDirectory.c_str(), "*.dll"); !iter.Done(); iter.Next())
+		{
+			std::string	pluginPath = iter.GetFullPath();
+			if (kPluginHandle_Invalid == LookupHandleFromPath(pluginPath.c_str()))
+				if (InstallPlugin(pluginPath))	// Cannot use the info.name as it is different from the plugin path
+					nFound++;
+		}
 	}
+	while (nFound);
 
-	InstallPlugins(pluginPaths);
-	
 	s_currentLoadingPlugin = NULL;
 	s_currentPluginHandle = 0;
 
@@ -631,40 +595,43 @@ void PluginManager::InstallPlugins(void)
 int QueryLoadPluginExceptionFilter(_EXCEPTION_POINTERS* exceptionInfo, HMODULE pluginHandle, char* errorOut, const char* type)
 {
 	uintptr_t exceptionAddr = exceptionInfo->ContextRecord->Eip - (uintptr_t)pluginHandle + 0x10000000;
-	snprintf(errorOut, 0x1000, "disabled, fatal error occurred at %08X while %s plugin", exceptionAddr, type);
+	snprintf(errorOut, LOAD_EXCEPTION_BUFFER_LEN, "disabled, fatal error occurred at %08X while %s plugin", exceptionAddr, type);
 	return EXCEPTION_EXECUTE_HANDLER;
 }
 
 // SEH-wrapped calls to plugin API functions to avoid bugs from bringing down the core
-const char* PluginManager::SafeCallPluginExport(LoadedPlugin* plugin, const NVSEInterface* nvse, bool query, char* errorOut)
+const char * PluginManager::SafeCallQueryPlugin(LoadedPlugin * plugin, const NVSEInterface * nvse, char* errorOut)
 {
 	__try
 	{
-		auto result = query ? plugin->query(nvse, &plugin->info) : plugin->load(nvse);
-		if (!result)
+		if(!plugin->query(nvse, &plugin->info))
 		{
-			if (query)
-				return "reported as incompatible during query";
-			return "reported as incompatible during load";
+			return "reported as incompatible during query";
 		}
 	}
-	__except (QueryLoadPluginExceptionFilter(GetExceptionInformation(), plugin->handle, errorOut, query ? "querying" : "loading"))
+	__except(QueryLoadPluginExceptionFilter(GetExceptionInformation(), plugin->handle, errorOut, "querying"))
 	{
 		return errorOut;
 	}
-	return "";
+
+	return NULL;
 }
 
-std::string PluginManager::SafeCallQueryPlugin(LoadedPlugin* plugin, const NVSEInterface* nvse)
+const char * PluginManager::SafeCallLoadPlugin(LoadedPlugin * plugin, const NVSEInterface * nvse, char* errorOut)
 {
-	char buf[0x400];
-	return SafeCallPluginExport(plugin, nvse, true, buf);
-}
+	__try
+	{
+		if(!plugin->load(nvse))
+		{
+			return "reported as incompatible during load";
+		}
+	}
+	__except (QueryLoadPluginExceptionFilter(GetExceptionInformation(), plugin->handle, errorOut, "loading"))
+	{
+		return errorOut;
+	}
 
-std::string PluginManager::SafeCallLoadPlugin(LoadedPlugin* plugin, const NVSEInterface* nvse)
-{
-	char buf[0x400];
-	return SafeCallPluginExport(plugin, nvse, false, buf);
+	return NULL;
 }
 
 enum
@@ -707,7 +674,7 @@ const char * PluginManager::CheckPluginCompatibility(LoadedPlugin * plugin)
 #ifdef RUNTIME
 					if(iter->compatFlags & kCompat_BlockFromRuntime)
 					{
-						return iter->reason ? iter->reason : "";
+						return iter->reason;
 					}
 #endif
 
@@ -729,7 +696,7 @@ const char * PluginManager::CheckPluginCompatibility(LoadedPlugin * plugin)
 		return "disabled, fatal error occurred while checking plugin compatibility";
 	}
 
-	return "";
+	return NULL;
 }
 
 // Plugin communication interface

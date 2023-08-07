@@ -318,7 +318,6 @@ class RefMatcherARefr
 {
 	bool m_includeTaken;
 	TESObjectREFR* m_refr;
-
 public:
 	RefMatcherARefr(bool includeTaken, TESObjectREFR* refr) : m_includeTaken(includeTaken), m_refr(refr)
 		{ }
@@ -334,157 +333,68 @@ public:
 	}
 };
 
-struct DistanceAngleMatcher
+class RefMatcherAnyForm
 {
-	TESObjectREFR* m_distanceRef = nullptr;	//if null, ignore distance check.
-	float m_maxDistance = 0;	//if 0 or below, ignore.
-	float m_maxHeadingAngle = -1;	//An absolute value. If below 0, ignore.
-	
-	DistanceAngleMatcher() = default;
-	DistanceAngleMatcher(TESObjectREFR* distanceRef, float maxDistance, float maxHeadingAngle) :
-		m_distanceRef(distanceRef), m_maxDistance(maxDistance), m_maxHeadingAngle(maxHeadingAngle)
-	{}
+	bool m_includeTaken;
+public:
+	RefMatcherAnyForm(bool includeTaken) : m_includeTaken(includeTaken)
+		{ }
 
-	bool MatchDistanceAndAngle(const TESObjectREFR* refr) const
+	bool Accept(const TESObjectREFR* refr)
 	{
-		if (!m_distanceRef || refr == m_distanceRef)
+		if (m_includeTaken || !(refr->IsTaken()))
 			return true;
-
-		if (m_maxDistance > 0)
-		{
-			if (GetDistance3D(m_distanceRef, refr) > m_maxDistance)
-			{
-				return false;
-			}
-		}
-
-		if (m_maxHeadingAngle >= 0)
-		{
-#if _DEBUG
-			// test if GetHeadingAngle has same result as Cmd_GetHeadingAngle
-			// Cmd_GetHeadingAngle only works on actor calling refs, so only enable the test for that case.
-			if (s_AreRuntimeTestsEnabled && m_distanceRef->Unk_3F())
-			{
-				double cmdResult;
-				CdeclCall(0x5A0410, m_distanceRef, refr, 0, &cmdResult); // call Cmd_GetHeadingAngle
-				const double result = m_distanceRef->GetHeadingAngle(refr);
-				if (!FloatEqual(result, cmdResult))
-				{
-					Console_Print("ERROR in NVSE's GetHeadingAngle - Expected %f, got %f. Target ref: %s", 
-						cmdResult, result, refr->GetStringRepresentation().c_str());
-				}
-			}
-#endif
-
-			if (abs(m_distanceRef->GetHeadingAngle(refr)) > m_maxHeadingAngle)
-			{
-				return false;
-			}
-		}
-
-		return true;
+		else
+			return false;
 	}
 };
 
-struct IncludeTakenMatcher
+class RefMatcherFormType
 {
-	bool m_includeTaken = true;	//if true, ignore.
+	UInt32 m_formType;
+	bool m_includeTaken;
+public:
+	RefMatcherFormType(UInt32 formType, bool includeTaken) : m_formType(formType), m_includeTaken(includeTaken)
+		{ }
 
-	IncludeTakenMatcher() = default;
-	IncludeTakenMatcher(bool includeTaken) :
-		m_includeTaken(includeTaken)
-	{}
-
-	bool MatchTakenItems(const TESObjectREFR* refr) const
+	bool Accept(const TESObjectREFR* refr)
 	{
 		if (!m_includeTaken && refr->IsTaken())
 			return false;
-		
-		return true;
+		else if (refr->baseForm->typeID == m_formType && refr->baseForm->refID != 7)	//exclude player for kFormType_TESNPC
+			return true;
+		else
+			return false;
 	}
 };
 
-struct RefMatcherAnyForm: DistanceAngleMatcher, IncludeTakenMatcher
+class RefMatcherActor
 {
-	RefMatcherAnyForm(bool includeTaken) :
-	DistanceAngleMatcher(nullptr, 0, -1), IncludeTakenMatcher(includeTaken)
-	{}
+public:
+	RefMatcherActor()
+		{ }
 
-	RefMatcherAnyForm(bool includeTaken, TESObjectREFR* distanceRef, float maxDistance, float maxHeadingAngle):
-	DistanceAngleMatcher(distanceRef, maxDistance, maxHeadingAngle), IncludeTakenMatcher(includeTaken)
-	{}
-
-	bool Accept(const TESObjectREFR* refr) const
+	bool Accept(const TESObjectREFR* refr)
 	{
-		if (!MatchTakenItems(refr) || !MatchDistanceAndAngle(refr))
-		{
+		if (refr->baseForm->typeID == kFormType_TESCreature)
+			return true;
+		else if (refr->baseForm->typeID == kFormType_TESNPC && refr->baseForm->refID != 7) //exclude the player
+			return true;
+		else
 			return false;
-		}
-		return true;
 	}
 };
 
-struct RefMatcherFormType: DistanceAngleMatcher, IncludeTakenMatcher
+class RefMatcherItem
 {
-	UInt32 m_formType;
+	bool m_includeTaken;
+public:
+	RefMatcherItem(bool includeTaken) : m_includeTaken(includeTaken)
+		{ }
 
-	RefMatcherFormType(UInt32 formType, bool includeTaken) :
-	IncludeTakenMatcher(includeTaken), m_formType(formType)
-	{}
-
-	RefMatcherFormType(UInt32 formType, bool includeTaken, TESObjectREFR* distanceRef, float maxDistance, float maxHeadingAngle) :
-	DistanceAngleMatcher(distanceRef, maxDistance, maxHeadingAngle), IncludeTakenMatcher(includeTaken), m_formType(formType)
-	{}
-
-	bool Accept(const TESObjectREFR* refr) const
+	bool Accept(const TESObjectREFR* refr)
 	{
-		if (!MatchTakenItems(refr))
-			return false;
-		
-		if (refr->baseForm->typeID != m_formType || refr->baseForm->refID == 7)	//exclude player for kFormType_TESNPC
-			return false;
-
-		if (!MatchDistanceAndAngle(refr))
-			return false;
-
-		return true;
-	}
-};
-
-struct RefMatcherActor: DistanceAngleMatcher
-{
-	RefMatcherActor() = default;
-	RefMatcherActor(TESObjectREFR* distanceRef, float maxDistance, float maxHeadingAngle):
-	DistanceAngleMatcher(distanceRef, maxDistance, maxHeadingAngle)
-	{}
-	
-	bool Accept(const TESObjectREFR* refr) const
-	{
-		if (refr->baseForm->typeID != kFormType_TESCreature
-			&& (refr->baseForm->typeID != kFormType_TESNPC || refr->baseForm->refID == 7)) //exclude the player for kFormType_TESNPC
-		{
-			return false;
-		}
-
-		if (!MatchDistanceAndAngle(refr))
-			return false;
-
-		return true;
-	}
-};
-
-struct RefMatcherItem: IncludeTakenMatcher, DistanceAngleMatcher
-{
-	RefMatcherItem(bool includeTaken) : IncludeTakenMatcher(includeTaken)
-	{ }
-
-	RefMatcherItem(bool includeTaken, TESObjectREFR* distanceRef, float maxDistance, float maxHeadingAngle) :
-	IncludeTakenMatcher(includeTaken), DistanceAngleMatcher(distanceRef, maxDistance, maxHeadingAngle)
-	{ }
-
-	bool Accept(const TESObjectREFR* refr) const
-	{
-		if (!MatchTakenItems(refr))
+		if (!m_includeTaken && refr->IsTaken())
 			return false;
 
 		switch (refr->baseForm->typeID)
@@ -498,26 +408,16 @@ struct RefMatcherItem: IncludeTakenMatcher, DistanceAngleMatcher
 			case kFormType_TESAmmo:
 			case kFormType_TESKey:
 			case kFormType_AlchemyItem:
-			case kFormType_BGSNote:
 			case kFormType_TESObjectARMA:
-			case kFormType_TESObjectIMOD:
-			case kFormType_TESCasinoChips:
-			case kFormType_TESCaravanCard:
-			case kFormType_TESCaravanMoney:
-				break;
+				return true;
 
 			case kFormType_TESObjectLIGH:
-				if (TESObjectLIGH* light = DYNAMIC_CAST(refr->baseForm, TESForm, TESObjectLIGH))
-					if (light->lightFlags & 2)
-						break;
-			default:
-				return false;
+				TESObjectLIGH* light = DYNAMIC_CAST(refr->baseForm, TESForm, TESObjectLIGH);
+				if (light)
+					if (light->icon.ddsPath.m_dataLen)	//temp hack until I find canCarry flag on TESObjectLIGH
+						return true;
 		}
-
-		if (!MatchDistanceAndAngle(refr))
-			return false;
-		
-		return true;
+		return false;
 	}
 };
 
@@ -705,8 +605,6 @@ static bool GetNumRefs_Execute(COMMAND_ARGS, bool bUsePlayerCell = true)
 	SInt32 cellDepth = -127;
 	UInt32 includeTakenRefs = 0;
 	double uGrid = 0;
-	float maxDistance = 0;
-	float maxHeadingAngle = -1; // compared against abs(GetHeadingAngle)
 
 	PlayerCharacter* pc = PlayerCharacter::GetSingleton();
 	if (!pc || !(pc->parentCell))
@@ -714,18 +612,18 @@ static bool GetNumRefs_Execute(COMMAND_ARGS, bool bUsePlayerCell = true)
 
 	TESObjectCELL* cell = NULL;
 	if (bUsePlayerCell)
-		if (ExtractArgs(EXTRACT_ARGS, &formType, &cellDepth, &includeTakenRefs, &maxDistance, &maxHeadingAngle))
+		if (ExtractArgs(EXTRACT_ARGS, &formType, &cellDepth, &includeTakenRefs))
 			cell = pc->parentCell;
 		else
 			return true;
 	else
-		if (!ExtractArgs(EXTRACT_ARGS, &cell, &formType, &cellDepth, &includeTakenRefs, &maxDistance, &maxHeadingAngle))
+		if (!ExtractArgs(EXTRACT_ARGS, &cell, &formType, &cellDepth, &includeTakenRefs))
 			return true;
 
 	if (!cell)
 		return true;
 
-	bool const bIncludeTakenRefs = includeTakenRefs ? true : false;
+	bool bIncludeTakenRefs = includeTakenRefs ? true : false;
 	if (cellDepth == -127)
 		cellDepth = 0;
 	else if (cellDepth == -1)
@@ -737,28 +635,22 @@ static bool GetNumRefs_Execute(COMMAND_ARGS, bool bUsePlayerCell = true)
 	CellScanInfo info(cellDepth, formType, bIncludeTakenRefs, cell);
 	info.FirstCell();
 
-	auto const anyFormMatcher = RefMatcherAnyForm(bIncludeTakenRefs, thisObj, maxDistance, maxHeadingAngle);
-	auto const actorMatcher = RefMatcherActor(thisObj, maxDistance, maxHeadingAngle);
-	auto const itemMatcher = RefMatcherItem(bIncludeTakenRefs, thisObj, maxDistance, maxHeadingAngle);
-	auto const formTypeMatcher = RefMatcherFormType(formType, bIncludeTakenRefs, thisObj, maxDistance, maxHeadingAngle);
-
 	while (info.curCell)
 	{
 		const TESObjectCELL::RefList& refList = info.curCell->objectList;
-		
 		switch (formType)
 		{
 		case 0:
-			*result += refList.CountIf(anyFormMatcher);
+			*result += refList.CountIf(RefMatcherAnyForm(bIncludeTakenRefs));
 			break;
 		case 200:
-			*result += refList.CountIf(actorMatcher);
+			*result += refList.CountIf(RefMatcherActor());
 			break;
 		case 201:
-			*result += refList.CountIf(itemMatcher);
+			*result += refList.CountIf(RefMatcherItem(bIncludeTakenRefs));
 			break;
 		default:
-			*result += refList.CountIf(formTypeMatcher);
+			*result += refList.CountIf(RefMatcherFormType(formType, bIncludeTakenRefs));
 		}
 		info.NextCell();
 	}
@@ -786,8 +678,6 @@ bool GetRefs_Execute(COMMAND_ARGS, bool bUsePlayerCell = true)
 	UInt32 includeTakenRefs = 0;
 	double uGrid = 0;
 	double arrIndex = 0;
-	float maxDistance = 0;
-	float maxHeadingAngle = -1; // compared against abs(GetHeadingAngle)
 
 	PlayerCharacter* pc = PlayerCharacter::GetSingleton();
 	if (!pc || !(pc->parentCell))
@@ -795,18 +685,18 @@ bool GetRefs_Execute(COMMAND_ARGS, bool bUsePlayerCell = true)
 
 	TESObjectCELL* cell = NULL;
 	if (bUsePlayerCell)
-		if (ExtractArgs(EXTRACT_ARGS, &formType, &cellDepth, &includeTakenRefs, &maxDistance, &maxHeadingAngle))
+		if (ExtractArgs(EXTRACT_ARGS, &formType, &cellDepth, &includeTakenRefs))
 			cell = pc->parentCell;
 		else
 			return true;
 	else
-		if (!ExtractArgs(EXTRACT_ARGS, &cell, &formType, &cellDepth, &includeTakenRefs, &maxDistance, &maxHeadingAngle))
+		if (!ExtractArgs(EXTRACT_ARGS, &cell, &formType, &cellDepth, &includeTakenRefs))
 			return true;
 
 	if (!cell)
 		return true;
 
-	bool const bIncludeTakenRefs = includeTakenRefs ? true : false;
+	bool bIncludeTakenRefs = includeTakenRefs ? true : false;
 	if (cellDepth == -127)
 		cellDepth = 0;
 	else if (cellDepth == -1)
@@ -818,49 +708,43 @@ bool GetRefs_Execute(COMMAND_ARGS, bool bUsePlayerCell = true)
 	CellScanInfo info(cellDepth, formType, bIncludeTakenRefs, cell);
 	info.FirstCell();
 
-	auto const anyFormMatcher = RefMatcherAnyForm(bIncludeTakenRefs, thisObj, maxDistance, maxHeadingAngle);
-	auto const actorMatcher = RefMatcherActor(thisObj, maxDistance, maxHeadingAngle);
-	auto const itemMatcher = RefMatcherItem(bIncludeTakenRefs, thisObj, maxDistance, maxHeadingAngle);
-	auto const formTypeMatcher = RefMatcherFormType(formType, bIncludeTakenRefs, thisObj, maxDistance, maxHeadingAngle);
-
 	while (info.curCell)
 	{
 		const TESObjectCELL::RefList& refList = info.curCell->objectList;
 		for (TESObjectCELL::RefList::Iterator iter = refList.Begin(); !iter.End(); ++iter)
 		{
-			if (TESObjectREFR* const pRefr = iter.Get())
-			{
+			TESObjectREFR * pRefr = iter.Get();
+			if (pRefr)
 				switch (formType)
 				{
 				case 0:
-					if (anyFormMatcher.Accept(pRefr))
+					if (RefMatcherAnyForm(bIncludeTakenRefs).Accept(pRefr))
 					{
 						arr->SetElementFormID(arrIndex, pRefr->refID);
 						arrIndex += 1;
 					}
 					break;
 				case 200:
-					if (actorMatcher.Accept(pRefr))
+					if (RefMatcherActor().Accept(pRefr))
 					{
 						arr->SetElementFormID(arrIndex, pRefr->refID);
 						arrIndex += 1;
 					}
 					break;
 				case 201:
-					if (itemMatcher.Accept(pRefr))
+					if (RefMatcherItem(bIncludeTakenRefs).Accept(pRefr))
 					{
 						arr->SetElementFormID(arrIndex, pRefr->refID);
 						arrIndex += 1;
 					}
 					break;
 				default:
-					if (formTypeMatcher.Accept(pRefr))
+					if (RefMatcherFormType(formType, bIncludeTakenRefs).Accept(pRefr))
 					{
 						arr->SetElementFormID(arrIndex, pRefr->refID);
 						arrIndex += 1;
 					}
 				}
-			}
 		}
 		info.NextCell();
 	}
@@ -893,29 +777,19 @@ bool Cmd_GetRefCount_Execute(COMMAND_ARGS)
 
 bool Cmd_SetRefCount_Execute(COMMAND_ARGS)
 {
-	UInt32 newCount;
-	if (ExtractArgs(EXTRACT_ARGS, &newCount) && newCount && (newCount <= 0x7FFF))
-	{
-		InventoryReference *invRefr = s_invRefMap.GetPtr(thisObj->refID);
-		if (invRefr)
-		{
-			if (invRefr->m_data.xData)
-			{
-				ExtraCount *xCount = (ExtraCount*)invRefr->m_data.xData->GetByType(kExtraData_Count);
-				if (xCount) xCount->count = newCount;
-			}
-			invRefr->m_data.entry->countDelta = newCount;
-		}
-		else
-		{
-			ExtraCount *xCount = (ExtraCount*)thisObj->extraDataList.GetByType(kExtraData_Count);
-			if (xCount)
-				xCount->count = newCount;
-			else
-				thisObj->extraDataList.Add(ExtraCount::Create(newCount));
-			thisObj->MarkAsModified(0x400);
-		}
+	UInt32 newCount = 0;
+	if (!ExtractArgs(EXTRACT_ARGS, &newCount))
+		return true;
+	else if (!thisObj || newCount > 32767 || newCount < 1)
+		return true;
+
+	ExtraCount* pXCount = GetByTypeCast(thisObj->extraDataList, Count);
+	if (!pXCount) {
+		pXCount = ExtraCount::Create();
+		thisObj->extraDataList.Add(pXCount);
 	}
+	pXCount->count = newCount;
+
 	return true;
 }
 
@@ -1088,7 +962,7 @@ bool Cmd_SetActorBaseFlagsLow_Execute(COMMAND_ARGS)
 		obj = DYNAMIC_CAST(thisObj->baseForm, TESForm, TESActorBase);
 
 	if(obj)
-		obj->baseData.flags = (data & 0x0000FFFF) | (obj->baseData.flags & 0xFFFF0000);
+		obj->baseData.flags = (data & 0x0000FFFF) | (obj->flags & 0xFFFF0000);
 
 	return true;
 }
@@ -1821,7 +1695,7 @@ bool Cmd_IsPlayerSwimming_Execute(COMMAND_ARGS)
 
 bool Cmd_GetTFC_Eval(COMMAND_ARGS_EVAL)
 {
-	*result = (*g_osGlobals)->isFlycam;
+	*result = (*g_osGlobals)->unk06;
 	if(IsConsoleMode())
 		Console_Print("GetTFC: %f", *result);
 	return true;
@@ -1920,52 +1794,3 @@ bool Cmd_HasEffectShader_Execute(COMMAND_ARGS)
 	return true;
 }
 
-bool Cmd_SetEditorID_Execute(COMMAND_ARGS)
-{
-	*result = 0;
-	TESForm* form{};
-	char editorId[0x200];
-	if (!ExtractArgs(EXTRACT_ARGS, &form, &editorId))
-		return true;
-	form->SetEditorID(editorId);
-	*result = 1;
-	return true;
-}
-
-bool Cmd_CreateFormList_Execute(COMMAND_ARGS)
-{
-	*result = 0;
-	if (ExpressionEvaluator eval(PASS_COMMAND_ARGS);
-		eval.ExtractArgs())
-	{
-		BGSListForm* const formList = BGSListForm::MakeUnique().release();
-		if (!formList)
-			return true;
-		UInt32* refResult = (UInt32*)result;
-		*refResult = formList->refID;
-
-		auto const numArgs = eval.NumArgs();
-		if (numArgs >= 1)
-		{
-			if (auto const edID = eval.Arg(0)->GetString())
-				formList->SetEditorID(edID);
-
-			if (numArgs >= 2)
-			{
-				//Fill the list with contents of array.
-				if (auto const array = eval.Arg(1)->GetArrayVar())
-				{
-					for (auto const elem : *array)
-					{
-						UInt32 formId;
-						if (elem->GetAsFormID(&formId))
-						{
-							formList->AddAt(LookupFormByID(formId), eListEnd);
-						}
-					}
-				}
-			}
-		}
-	}
-	return true;
-}

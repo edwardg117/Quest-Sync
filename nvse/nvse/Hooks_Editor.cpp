@@ -544,7 +544,7 @@ std::vector g_lineMacros =
 			std::make_pair("%=", R"(\%\=)"),
 		};
 		std::string optVarTypeDecl; // int, ref etc in int iVar = 10 for example
-		for (auto& varType : g_validVariableTypeNames)
+		for (auto& varType : g_variableTypeNames)
 		{
 			if (_stricmp(line.substr(0, strlen(varType)).c_str(), varType) == 0 && isspace(line[strlen(varType)]))
 			{
@@ -557,46 +557,28 @@ std::vector g_lineMacros =
 			}
 		}
 
-#if 0   // code to remove unnecessary spaces from inside array brackets.
-		// TODO: Needs refinement, as currently it removes needed spaces for an inline expression inside brackets.
-		// Ex: it mangles "aTest[(Rand 1, 3)] = 1" into "aTest[(Rand1,3)] = 1", which no longer compiles.
 		const auto arrLeftBracketPos = line.find_first_of('[');
 		if (arrLeftBracketPos != std::string::npos)
 		{
 			const auto arrRightBracketPos = line.find_first_of(']');
-			if (arrRightBracketPos != std::string::npos && arrRightBracketPos > arrLeftBracketPos)
+			if (arrRightBracketPos > arrLeftBracketPos)
 			{
-				const auto end = line.begin() + arrRightBracketPos;
+				const auto end =line.begin() + arrRightBracketPos;
 				line.erase(std::remove_if(line.begin() + arrLeftBracketPos, end, isspace), end);
 			}
 		}
-#endif
 		
 		for (const auto& [realOp, regexOp] : s_shortHandMacros)
 		{
-			// VARIABLE = VALUE macro
-			// Variable type isn't considered for the regex.
-			// Unit tests for the full regex here: https://regex101.com/r/ybBkK8
-
-			// Ex1: Match "ivar = 4"
-			// Ex2: Match "SomeQuest.aTest[(Rand 1, 3)] = "SomeString"
-
-			// Right-side value will be matched in regex group #3
-			// This string composes the majority of groups #2 and #3.
-			std::string matchAnyNVSEExpression =
-				R"([\w\s\$\!\-\(\{][\.\s\S]*)";
-
-			// Left-side variable/array element will be matched in regex group #1
-			// Allow any NVSE expression to go inside array "[]" operator - this is group #2.
-			std::string regExGroup1And2 = 
-				R"(^([a-zA-Z]|\w[\w\.]*[\w](\[)"
-				+ matchAnyNVSEExpression + R"(\])*)\s*)";
-
-			const std::regex assignmentExpr(regExGroup1And2 + regexOp + '(' + matchAnyNVSEExpression + ')');
-			if (std::smatch m; std::regex_search(line, m, assignmentExpr, std::regex_constants::match_continuous) 
-				&& m.size() == 4)
+			// VARIABLE = VALUE macro 
+			const std::regex assignmentExpr(R"(([a-zA-Z\_\.0-9\[\]\"\-\+\=\*\/]+)\s*)" + regexOp + R"(([a-zA-Z\_\s\.\$\!0-9\-\(\{][.\s\S]*))"); // match int ivar = 4
+			if (std::smatch m; std::regex_search(line, m, assignmentExpr, std::regex_constants::match_continuous) && m.size() == 3)
 			{
-				line = "let " + optVarTypeDecl + m.str(1) + " " + realOp + " " + m.str(3);
+				auto varName = m.str(1);
+				std::erase_if(varName, isspace);
+				if (!std::ranges::any_of(varName, isalpha))
+					return false;
+				line = "let " + optVarTypeDecl + varName + " " + realOp + " " + m.str(2);
 				return true;
 			}
 		}
@@ -619,8 +601,7 @@ std::vector g_lineMacros =
 #endif
 	ScriptLineMacro([&](std::string& line, ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 	{
-		if (auto iter = ra::find_if(g_validVariableTypeNames, _L(const char* typeName, StartsWith(line, std::string(typeName) + " "))); 
-			iter != std::end(g_validVariableTypeNames))
+		if (auto iter = ra::find_if(g_variableTypeNames, _L(const char* typeName, StartsWith(line, std::string(typeName) + " "))); iter != std::end(g_variableTypeNames))
 		{
 			const auto* typeName = *iter;
 			const auto str = std::string(line).substr(strlen(typeName)+1);
@@ -639,11 +620,7 @@ std::vector g_lineMacros =
 #else
 			auto* errorBuf = lineBuf;
 #endif
-
-			ra::for_each(tokens,
-			_L(auto &varName,
-				CreateVariable(currentScript, scriptBuf, varName, VariableTypeNameToType(typeName),
-					_L(auto &msg, ShowCompilerError(errorBuf, "%s", msg.c_str())))));
+			ra::for_each(tokens, _L(auto& varName, CreateVariable(currentScript, scriptBuf, varName, VariableTypeNameToType(typeName), _L(auto& msg, ShowCompilerError(errorBuf, "%s", msg.c_str())))));
 		}
 		return false;
 	}, MacroType::MultipleVariableDeclaration)
@@ -657,8 +634,6 @@ bool HandleLineBufMacros(ScriptLineBuffer* line, ScriptBuffer* buffer)
 	return true;
 }
 
-static UInt32 g_nextLineNumberIncrement = 0;
-
 // Expand ScriptLineBuffer to allow multiline expressions with parenthesis
 int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 {
@@ -669,7 +644,6 @@ int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 #endif
 	const auto lineError = [&](const char* str)
 	{
-		g_nextLineNumberIncrement = 0;
 		scriptBuf->curLineNumber = lineBuf->lineNumber;
 		ShowCompilerError(errorBuf, "%s", str);
 		lineBuf->errorCode = 1;
@@ -686,11 +660,6 @@ int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 	auto numNewLinesInParenthesis = 0;
 	auto inStringLiteral = false;
 	auto inMultilineComment = false;
-
-	// in GECK code: `scriptLineBuf->lineNumber = scriptBuf->curLineNumber + 1;` before this function is called
-	// must be done here for the last line due to that.
-	lineBuf->lineNumber += g_nextLineNumberIncrement;
-	g_nextLineNumberIncrement = 0;
 
 	// skip all spaces and tabs in the beginning
 	while (isspace(*curScriptText))
@@ -715,8 +684,8 @@ int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 			inMultilineComment = false;
 			curScriptText += 2;
 			continue;
-		}
 
+		}
 		const auto curChar = *curScriptText++;
 		if (curChar == 0)
 		{
@@ -724,15 +693,9 @@ int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 				return lineError("Mismatched comment block (missing '*/' for a present '/*')");
 			if (inStringLiteral)
 				return lineError("Mismatched quotes. A string literal was not closed.");
-			if (numBrackets)
-				return lineError("Mismatched parentheses. Parentheses were not closed.");
 		}
 		if (inMultilineComment)
-		{
-			if (curChar == '\n')
-				++lineBuf->lineNumber;
 			continue;
-		}
 		switch (curChar)
 		{
 			case '(':
@@ -763,7 +726,7 @@ int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 					return lineError("Mismatched parenthesis");
 				if (!capturedNonSpace)
 					return 0;
-				[[fallthrough]];
+				// fallback intentional
 			}
 			case '\n':
 			{
@@ -776,8 +739,7 @@ int ParseNextLine(ScriptBuffer* scriptBuf, ScriptLineBuffer* lineBuf)
 						--lineBuf->paramTextLen;
 					}
 					lineBuf->paramText[lineBuf->paramTextLen] = '\0';
-					//lineBuf->lineNumber += numNewLinesInParenthesis;
-					g_nextLineNumberIncrement = numNewLinesInParenthesis;
+					lineBuf->lineNumber += numNewLinesInParenthesis;
 					if (!HandleLineBufMacros(lineBuf, scriptBuf))
 						return 0;
 					return curScriptText - oldScriptText;
@@ -837,7 +799,6 @@ void PatchDefaultCommandParser()
 	// Allow multiline expressions with parenthesis
 	WriteRelJump(0x5C5830, UInt32(ParseNextLine));
 }
-
 #else
 
 const auto* g_arrayVar = "array_var";
@@ -889,29 +850,3 @@ void PatchGameCommandParser()
 }
 
 #endif
-
-constexpr bool isEditor()
-{
-#if EDITOR
-	return true;
-#else
-	return false;
-#endif
-}
-
-bool __fastcall retnTrue()
-{
-	return true;
-}
-
-void PatchDisable_ScriptBufferValidateRefVars(bool disable)
-{
-	if (disable)
-	{
-		WriteRelCall(isEditor() ? 0x5C97CF : 0x5AED78, retnTrue);
-	}
-	else
-	{
-		WriteRelCall(isEditor() ? 0x5C97CF : 0x5AED78, isEditor() ? 0x5C5980 : 0x5AFA50);
-	}
-}

@@ -26,7 +26,6 @@
 #include <fstream>
 
 #include "GameData.h"
-#include "UnitTests.h"
 
 static void HandleMainLoopHook(void);
 
@@ -62,24 +61,20 @@ bool RunCommand_NS(COMMAND_ARGS, Cmd_Execute cmd)
 float g_gameSecondsPassed = 0;
 
 // xNVSE 6.1
-void HandleDelayedCall(float timeDelta, bool isMenuMode)
+void HandleDelayedCall()
 {
 	if (g_callAfterInfos.empty())
 		return; // avoid lock overhead
-
+	
 	ScopedLock lock(g_callAfterInfosCS);
 
 	auto iter = g_callAfterInfos.begin();
 	while (iter != g_callAfterInfos.end())
 	{
-		if (!iter->RunInMenuMode() && isMenuMode)
-		{
-			iter->time += timeDelta;
-		}
 		if (g_gameSecondsPassed >= iter->time)
 		{
-			ArrayElementArgFunctionCaller caller(iter->script, iter->args, iter->thisObj);
-			UserFunctionManager::Call(std::move(caller));
+			InternalFunctionCaller caller(iter->script, iter->thisObj);
+			delete UserFunctionManager::Call(std::move(caller));
 			iter = g_callAfterInfos.erase(iter); // yes, this is valid: https://stackoverflow.com/a/3901380/6741772
 		}
 		else
@@ -89,37 +84,7 @@ void HandleDelayedCall(float timeDelta, bool isMenuMode)
 	}
 }
 
-void HandleCallAfterFramesScripts(bool isMenuMode)
-{
-	if (g_callAfterFramesInfos.empty())
-		return; // avoid lock overhead
-
-	ScopedLock lock(g_callAfterFramesInfosCS);
-
-	auto iter = g_callAfterFramesInfos.begin();
-	while (iter != g_callAfterFramesInfos.end())
-	{
-		auto& framesLeft = iter->time; //alias for clarification
-		if (!iter->RunInMenuMode() && isMenuMode)
-		{
-			++iter;
-			continue;
-		}
-
-		if (--framesLeft <= 0)
-		{
-			ArrayElementArgFunctionCaller caller(iter->script, iter->args, iter->thisObj);
-			UserFunctionManager::Call(std::move(caller));
-			iter = g_callAfterFramesInfos.erase(iter); // yes, this is valid: https://stackoverflow.com/a/3901380/6741772
-		}
-		else
-		{
-			++iter;
-		}
-	}
-}
-
-void HandleCallWhileScripts(bool isMenuMode)
+void HandleCallWhileScripts()
 {
 	if (g_callWhileInfos.empty())
 		return; // avoid lock overhead
@@ -128,26 +93,11 @@ void HandleCallWhileScripts(bool isMenuMode)
 	auto iter = g_callWhileInfos.begin();
 	while (iter != g_callWhileInfos.end())
 	{
-		if ((isMenuMode && !iter->RunInMenuMode())
-			|| (!isMenuMode && !iter->RunInGameMode()))
+		InternalFunctionCaller conditionCaller(iter->condition);
+		if (auto conditionResult = std::unique_ptr<ScriptToken>(UserFunctionManager::Call(std::move(conditionCaller))); conditionResult && conditionResult->GetBool())
 		{
-			++iter;
-			continue;
-		}
-
-		ArrayElementArgFunctionCaller<SelfOwningArrayElement> conditionCaller(iter->condition);
-		if (iter->PassArgsToCondFunc())
-		{
-			conditionCaller.SetArgs(iter->args);
-		}
-
-		if (auto const conditionResult = UserFunctionManager::Call(std::move(conditionCaller)); 
-			conditionResult && conditionResult->GetBool())
-		{
-			ArrayElementArgFunctionCaller<SelfOwningArrayElement> scriptCaller(iter->callFunction, iter->thisObj);
-			if (iter->PassArgsToCallFunc())
-				scriptCaller.SetArgs(iter->args);
-			UserFunctionManager::Call(std::move(scriptCaller));
+			InternalFunctionCaller scriptCaller(iter->callFunction, iter->thisObj);
+			delete UserFunctionManager::Call(std::move(scriptCaller));
 			++iter;
 		}
 		else
@@ -157,7 +107,7 @@ void HandleCallWhileScripts(bool isMenuMode)
 	}
 }
 
-void HandleCallWhenScripts(bool isMenuMode)
+void HandleCallWhenScripts()
 {
 	if (g_callWhenInfos.empty())
 		return; // avoid lock overhead
@@ -166,26 +116,11 @@ void HandleCallWhenScripts(bool isMenuMode)
 	auto iter = g_callWhenInfos.begin();
 	while (iter != g_callWhenInfos.end())
 	{
-		if ((isMenuMode && !iter->RunInMenuMode())
-			|| (!isMenuMode && !iter->RunInGameMode()))
+		InternalFunctionCaller conditionCaller(iter->condition);
+		if (auto conditionResult = std::unique_ptr<ScriptToken>(UserFunctionManager::Call(std::move(conditionCaller))); conditionResult && conditionResult->GetBool())
 		{
-			++iter;
-			continue;
-		}
-
-		ArrayElementArgFunctionCaller conditionCaller(iter->condition, iter->args);
-		if (iter->PassArgsToCondFunc())
-		{
-			conditionCaller.SetArgs(iter->args);
-		}
-
-		if (auto const conditionResult = UserFunctionManager::Call(std::move(conditionCaller)); 
-			conditionResult && conditionResult->GetBool())
-		{
-			ArrayElementArgFunctionCaller<SelfOwningArrayElement> scriptCaller(iter->callFunction, iter->thisObj);
-			if (iter->PassArgsToCallFunc())
-				scriptCaller.SetArgs(iter->args);
-			UserFunctionManager::Call(std::move(scriptCaller));
+			InternalFunctionCaller scriptCaller(iter->callFunction, iter->thisObj);
+			delete UserFunctionManager::Call(std::move(scriptCaller));
 			iter = g_callWhenInfos.erase(iter);
 		}
 		else
@@ -195,7 +130,7 @@ void HandleCallWhenScripts(bool isMenuMode)
 	}
 }
 
-void HandleCallForScripts(float timeDelta, bool isMenuMode)
+void HandleCallForScripts()
 {
 	if (g_callForInfos.empty())
 		return; // avoid lock overhead
@@ -204,64 +139,16 @@ void HandleCallForScripts(float timeDelta, bool isMenuMode)
 	auto iter = g_callForInfos.begin();
 	while (iter != g_callForInfos.end())
 	{
-		if (!iter->RunInMenuMode() && isMenuMode)
-		{
-			iter->time += timeDelta;
-		}
 		if (g_gameSecondsPassed < iter->time)
 		{
-			ArrayElementArgFunctionCaller caller(iter->script, iter->args, iter->thisObj);
-			UserFunctionManager::Call(std::move(caller));
+			InternalFunctionCaller caller(iter->script, iter->thisObj);
+			delete UserFunctionManager::Call(std::move(caller));
 			++iter;
 		}
 		else
 		{
 			iter = g_callForInfos.erase(iter);
 		}
-	}
-}
-
-void HandleCallWhilePerSecondsScripts(float timeDelta, bool isMenuMode)
-{
-	if (g_callWhilePerSecondsInfos.empty())
-		return; // avoid lock overhead
-	ScopedLock lock(g_callWhilePerSecondsInfosCS);
-
-	auto iter = g_callWhilePerSecondsInfos.begin();
-	while (iter != g_callWhilePerSecondsInfos.end())
-	{
-		if ((isMenuMode && !iter->RunInMenuMode())
-			|| (!isMenuMode && !iter->RunInGameMode()))
-		{
-			iter->oldTime += timeDelta;
-			++iter;
-			continue;
-		}
-
-		if (g_gameSecondsPassed - iter->oldTime >= iter->interval)
-		{
-			ArrayElementArgFunctionCaller<SelfOwningArrayElement> conditionCaller(iter->condition);
-			if (iter->PassArgsToCondFunc())
-			{
-				conditionCaller.SetArgs(iter->args);
-			}
-
-			if (auto const conditionResult = UserFunctionManager::Call(std::move(conditionCaller));
-				conditionResult && conditionResult->GetBool())
-			{
-				ArrayElementArgFunctionCaller<SelfOwningArrayElement> scriptCaller(iter->callFunction, iter->thisObj);
-				if (iter->PassArgsToCallFunc())
-					scriptCaller.SetArgs(iter->args);
-				UserFunctionManager::Call(std::move(scriptCaller));
-				iter->oldTime = g_gameSecondsPassed;
-			}
-			else
-			{
-				iter = g_callWhilePerSecondsInfos.erase(iter);
-				continue;
-			}
-		}
-		++iter;
 	}
 }
 
@@ -338,26 +225,10 @@ static void HandleMainLoopHook(void)
 		DetermineShowScriptErrors();
 		ApplyGECKEditorIDs();
 		s_recordedMainThreadID = true;
-#if _DEBUG
-#if ALPHA_MODE
-		Console_Print("xNVSE (debug) %d.%d.%d Beta Build %s", NVSE_VERSION_INTEGER, NVSE_VERSION_INTEGER_MINOR, NVSE_VERSION_INTEGER_BETA, __TIME__);
-#else
-		Console_Print("xNVSE (debug) %d.%d.%d", NVSE_VERSION_INTEGER, NVSE_VERSION_INTEGER_MINOR, NVSE_VERSION_INTEGER_BETA);
-#endif
-#else //release print
-#if ALPHA_MODE
-		Console_Print("xNVSE %d.%d.%d Beta Build %s", NVSE_VERSION_INTEGER, NVSE_VERSION_INTEGER_MINOR, NVSE_VERSION_INTEGER_BETA, __TIME__);
-#else
 		Console_Print("xNVSE %d.%d.%d", NVSE_VERSION_INTEGER, NVSE_VERSION_INTEGER_MINOR, NVSE_VERSION_INTEGER_BETA);
-#endif
-#endif
 		g_mainThreadID = GetCurrentThreadId();
 		
 		PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_DeferredInit, NULL, 0, NULL);
-
-#if RUNTIME
-		ExecuteRuntimeUnitTests();
-#endif
 	}
 	PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_MainGameLoop, nullptr, 0, nullptr);
 
@@ -373,24 +244,23 @@ static void HandleMainLoopHook(void)
 	g_StringMap.Clean();
 	LambdaManager::EraseUnusedSavedVariableLists();
 
-	const auto vatsTimeMult = ThisStdCall<double>(0x9C8CC0, reinterpret_cast<void*>(0x11F2250));
-	const float timeDelta = g_timeGlobal->secondsPassed * static_cast<float>(vatsTimeMult);
-	const auto isMenuMode = CdeclCall<bool>(0x702360);
-	g_gameSecondsPassed += timeDelta;
-
 	// handle calls from cmd CallWhile
-	HandleCallWhileScripts(isMenuMode);
-	HandleCallWhenScripts(isMenuMode);
+	HandleCallWhileScripts();
+	HandleCallWhenScripts();
+	
+	const auto isMenuMode = CdeclCall<bool>(0x702360);
 
-	// handle calls from cmd CallAfterSeconds
-	HandleDelayedCall(timeDelta, isMenuMode);
+	if (!isMenuMode)
+	{
+		g_gameSecondsPassed += *g_globalTimeMult * g_timeGlobal->secondsPassed;
+		
+		// handle calls from cmd CallAfterSeconds
+		HandleDelayedCall();
 
-	// handle calls from cmd CallForSeconds
-	HandleCallForScripts(timeDelta, isMenuMode);
+		// handle calls from cmd CallForSeconds
+		HandleCallForScripts();
+	}
 
-	HandleCallWhilePerSecondsScripts(timeDelta, isMenuMode);
-
-	HandleCallAfterFramesScripts(isMenuMode);
 }
 
 #define DEBUG_PRINT_CHANNEL(idx)								\

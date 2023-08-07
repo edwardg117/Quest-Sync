@@ -278,8 +278,6 @@ public:
 
 	Tile *GetChildAlt(const char *childName);
 	Value *GetComponentValueAlt(const char *componentPath);
-
-	std::string GetQualifiedName();
 };
 
 // 3C
