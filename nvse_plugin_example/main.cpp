@@ -52,7 +52,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 {
 	//TESQuest* test = new TESQuest();
 	//test->lVarOrObjectives.Count();
-	// This is purely to test code signing.
+	// This is purely to test code signing. Part 2, does my gui like it?
 	switch (msg->type)
 	{
 	case NVSEMessagingInterface::kMessage_LoadGame:
