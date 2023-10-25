@@ -50,6 +50,9 @@ QuestManager g_QuestManager;
 // With this, plugins can listen to messages such as whenever the game loads
 void MessageHandler(NVSEMessagingInterface::Message* msg)
 {
+	//TESQuest* test = new TESQuest();
+	//test->lVarOrObjectives.Count();
+	// This is purely to test code signing.
 	switch (msg->type)
 	{
 	case NVSEMessagingInterface::kMessage_LoadGame:
