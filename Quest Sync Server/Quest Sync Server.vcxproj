@@ -144,6 +144,11 @@
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\nvse_plugin_example\nvse_plugin_example.vcxproj">
+      <Project>{ae7cfee7-4058-4e3c-adc2-ae7480ee2028}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="..\nvse_plugin_example\packages\nlohmann.json.3.11.2\build\native\nlohmann.json.targets" Condition="Exists('..\nvse_plugin_example\packages\nlohmann.json.3.11.2\build\native\nlohmann.json.targets')" />
