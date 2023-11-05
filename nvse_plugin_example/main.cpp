@@ -180,8 +180,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		}
 		//else
 		{
-			std::string message = "MessageBoxEx \"Quest Sync plugin is ready.\"";
-			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+			//std::string message = "MessageBoxEx \"Quest Sync plugin is ready.\"";
+			//g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 			PlayerCharacter* player = PlayerCharacter::GetSingleton();
 			g_QuestManager.process(&client, player->questObjectiveList, g_consoleInterface);
 			//g_last_connection_failure = std::chrono::steady_clock::now();

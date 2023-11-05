@@ -390,6 +390,34 @@ __declspec(naked) bool __fastcall TESObjectREFR::GetInSameCellOrWorld(TESObjectR
 	}
 }
 
+__declspec(naked) float __vectorcall Point3Distance(const NiVector3& pt1, const NiVector3& pt2)
+{
+	__asm
+	{
+		movups	xmm0, [ecx]
+		movups	xmm1, [edx]
+		subps	xmm0, xmm1
+		andps	xmm0, PS_XYZ0Mask
+		mulps	xmm0, xmm0
+		xorps	xmm1, xmm1
+		haddps	xmm0, xmm1
+		haddps	xmm0, xmm1
+		comiss	xmm0, xmm1
+		jz		done
+		movq	xmm1, xmm0
+		rsqrtss	xmm2, xmm0
+		mulss	xmm1, xmm2
+		mulss	xmm1, xmm2
+		movss	xmm3, SS_3
+		subss	xmm3, xmm1
+		mulss	xmm3, xmm2
+		mulss	xmm3, PS_V3_Half
+		mulss	xmm0, xmm3
+		done :
+		retn
+	}
+}
+
 // Code by JIP
 __declspec(naked) float __vectorcall TESObjectREFR::GetDistance(TESObjectREFR* target) const
 {
