@@ -5,6 +5,14 @@
 #include "nvse/GameObjects.h"
 #include <string>
 //NoGore is unsupported in xNVSE
+#include "TCPClient.h"
+#include "filthy_ini.h"
+#include "QuestManager.h"
+#include "nvse/GameForms.h"
+#include "Quest Sync Server/QsyncDefinitions.h"
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+#include <chrono>
 
 IDebugLog		gLog("nvse_plugin_example.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;

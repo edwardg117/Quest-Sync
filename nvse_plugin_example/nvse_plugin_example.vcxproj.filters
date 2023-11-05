@@ -68,6 +68,9 @@
     <ClCompile Include="..\nvse\nvse\GameProcess.cpp">
       <Filter>nvse</Filter>
     </ClCompile>
+    <ClCompile Include="QuestManager.cpp" />
+    <ClCompile Include="TCPClient.cpp" />
+    <ClCompile Include="filthy_ini.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\nvse\nvse\GameAPI.h">
@@ -142,8 +145,12 @@
     <ClInclude Include="..\nvse\nvse\GameUI.h">
       <Filter>nvse</Filter>
     </ClInclude>
+    <ClInclude Include="QuestManager.h" />
+    <ClInclude Include="TCPClient.h" />
+    <ClInclude Include="filthy_ini.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="exports.def" />
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
