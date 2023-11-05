@@ -123,7 +123,8 @@ void QuestManager::Add(std::string refID, std::string ObjectiveId, NVSEConsoleIn
 		// Can only add new objective here
 		std::string setstage = "SetStage " + refID + " " + ObjectiveId;
 		// Updating a quest to the next stage usually makes it visible if it isn't already for some reason
-		g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
+		_MESSAGE("Setting stage for %s to %s", refID, ObjectiveId);
+		g_consoleInterface->RunScriptLine2(setstage.c_str(), nullptr, false);
 		// TODO Tell server
 	}
 	else
@@ -303,6 +304,7 @@ void QuestManager::reset()
 	ActiveQuests.clear();
 	ActiveObjectives.clear();
 	ObjectiveCount = 0;
+	RetryConnection = true;
 	ConnAckReceived = false;
 	SyncedWithServer = false;
 	SyncState = 0;
@@ -492,13 +494,13 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 	for (auto message : messages)
 	{
 		_MESSAGE("Received %i message(s), parsing!", messages.size());
-		//_MESSAGE("Size: %i", message.size());
+		_MESSAGE("%s", message);
 		if (message.size() == 0)
 		{
 			// Server has closed the connection
 			_MESSAGE("Server has closed the socket!");
 			Console_Print("Disconnected from Quest Sync Server");
-			std::string message = "MessageEx \"Disconnected from Quest Sync Server! Will attempt to reconnect.\"";
+			std::string message = "MessageBoxEx \"Disconnected from Quest Sync Server! Will attempt to reconnect.\"";
 			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 			client->Disconnect();
 			this->reset();
@@ -519,9 +521,29 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 			{
 				_MESSAGE("Server sent Connection Acknowledgement");
 				std::string msg_from_server;
-				instruction["Body"]["Message"].get_to(msg_from_server);
+				instruction["Body"]["message"].get_to(msg_from_server);
 				_MESSAGE("Message From Server: %s", msg_from_server.c_str());
-				ConnAckReceived = true;
+				QSyncVersion versionInfo;
+				versionInfo.fromString(msg_from_server);
+				bool serverResult = versionInfo.isVersionCompatible(ClientVersion::Version[0], ClientVersion::Version[1]);
+				// Determine if allowed to connect
+				if (serverResult)
+				{
+					ConnAckReceived = true;
+					_MESSAGE("Server version is compatible, maintaining connection.");
+					Console_Print("Server version is compatible, maintaining connection.");
+					std::string message = "MessageBoxEx \"Quest Sync plugin is ready.\"";
+					//g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+				}
+				else
+				{
+					_MESSAGE("Server version is incompatible with this version of the plugin, disconnecting and not retrying. Update plugin version to solve.");
+					Console_Print("Server version incompatible, disconnecting from Quest Sync Server.");
+					std::string message = "MessageBoxEx \"Quest Sync plugin is outdated! Disconnecting from the server.\"";
+					//g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+					client->Disconnect();
+					RetryConnection = false;
+				}
 			}
 			break;
 			case message_type::START_QUEST:
@@ -570,7 +592,7 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 				stage_info["Stage"].get_to(Stage);
 				_MESSAGE("%s %s", ID.c_str(), Stage.c_str());
 				std::string completeStage = "SetObjectiveCompleted " + ID + " " + Stage + " 1";
-				g_consoleInterface->RunScriptLine(completeStage.c_str(), nullptr);
+				g_consoleInterface->RunScriptLine2(completeStage.c_str(), nullptr, false);
 				this->removeActiveObjective(ID, Stage);
 				// TODO figure out how much XP should be earned
 
@@ -686,6 +708,11 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 		_MESSAGE("Sending:\n%s", a_test);
 		client->send_message(a_test);
 	}
+}
+
+bool QuestManager::retryConnection()
+{
+	return RetryConnection;
 }
 
 cQuest::cQuest(TESQuest* Quest)

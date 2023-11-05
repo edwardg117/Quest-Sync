@@ -92,3 +92,105 @@ public:
 	}
 
 };
+
+/// <summary>
+/// Used to compare client and server versions during initial connection.
+/// This information is sent to the client, who will decide if they support this version.
+/// </summary>
+class QSyncVersion
+{
+public:
+	QSyncVersion() 
+	{
+	}
+	/// <summary>
+	/// Builds object from a message.
+	/// </summary>
+	/// <param name="msg">Sould be the Body from a QsyncMessage from the server with the CONN_ACK</param>
+	QSyncVersion(std::string msg)
+	{
+		fromString(msg);
+	}
+
+	void SetServerVersion(const int serverVersion[2])
+	{
+		this->ServerVersion[0] = serverVersion[0];
+		this->ServerVersion[1] = serverVersion[1];
+	}
+	void SetMinVersion(const int minVersion[2])
+	{
+		this->FromVersion[0] = minVersion[0];
+		this->FromVersion[1] = minVersion[1];
+	}
+	void SetMaxVersion(const int maxVersion[2])
+	{
+		this->ToVersion[0] = maxVersion[0];
+		this->ToVersion[1] = maxVersion[1];
+	}
+	/// <summary>
+	/// Converts object to a string for sending
+	/// </summary>
+	/// <returns></returns>
+	std::string toString()
+	{
+		json json_message = {
+			{"ServerVersion", ServerVersion},
+			{"FromVersion", FromVersion},
+			{"ToVersion", ToVersion}
+		};
+		return json_message.dump();
+	}
+
+	/// <summary>
+	/// Overwrites the info stored in this object based on what is in the message from the server.
+	/// </summary>
+	/// <param name="msg">Sould be the Body from a QsyncMessage from the server with the CONN_ACK</param>
+	void fromString(std::string msg)
+	{
+		auto parsed_message = json::parse(msg);
+		parsed_message["ServerVersion"].get_to(ServerVersion);
+		parsed_message["FromVersion"].get_to(FromVersion);
+		parsed_message["ToVersion"].get_to(ToVersion);
+	}
+
+	/// <summary>
+	/// Determines if the server thinks it's compatible with this client version.
+	/// </summary>
+	/// <param name="ClientMajorVersion">Major version of the client</param>
+	/// <param name="ClientMinorVersion">Minor version of the client</param>
+	/// <returns>If server expects to be compatible</returns>
+	bool isVersionCompatible(int ClientMajorVersion, int ClientMinorVersion)
+	{
+		bool verdict = false;
+		if (ClientMajorVersion >= FromVersion[0] && ClientMajorVersion <= ToVersion[0])
+		{
+			if (ClientMajorVersion == ToVersion[0])
+			{
+				if (ClientMinorVersion <= ToVersion[1])
+				{
+					verdict = true; // Client is at the max supported version and does not exceed the minor veresion
+				}
+			}
+			else if (ClientMajorVersion == FromVersion[0])
+			{
+				if (ClientMinorVersion >= FromVersion[1])
+				{
+					verdict = true; // Client is at the min supported version and is not lower than the min minor version
+				}
+			}
+			else
+			{
+				verdict = true; // Client is between the min and max versions, minor versions should not matter in this case
+			}
+		}
+
+		return verdict;
+	}
+private:
+	// Server version [majorVersion, minorVersion]
+	int ServerVersion[2];
+	// The minimum version of the Client version that the server expects to support (Ultimately if the client thinks it can support the server version, this is ignored)
+	int FromVersion[2];
+	// The maximum version of the Client version that the server expects to support (Ultimately if the client thinks it can support the server version, this is ignored)
+	int ToVersion[2];
+};

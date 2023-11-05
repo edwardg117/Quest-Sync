@@ -139,6 +139,7 @@
   <ItemGroup>
     <ClInclude Include="QsyncDefinitions.h" />
     <ClInclude Include="TCPListener.h" />
+    <ClInclude Include="Version.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

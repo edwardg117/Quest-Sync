@@ -120,6 +120,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		{
 			_MESSAGE("Conection Success!");
 			Console_Print("Connected to the Quest Sync server!");
+			std::string message = "MessageEx \"Quest Sync plugin is ready.\"";
+			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 		}
 		else
 		{
@@ -129,6 +131,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		}
 		break;
 	case NVSEMessagingInterface::kMessage_MainGameLoop: // Same as above
+		// If Quest Manager has decided it's not compatible, skip all logic
+		if (!g_QuestManager.retryConnection()) { break; }
+
 		if (!client.isConnected()) // Can't do anything if the server isn't connected
 		{
 			// uint64_t sec = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
@@ -163,6 +168,8 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		}
 		//else
 		{
+			std::string message = "MessageBoxEx \"Quest Sync plugin is ready.\"";
+			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 			PlayerCharacter* player = PlayerCharacter::GetSingleton();
 			g_QuestManager.process(&client, player->questObjectiveList, g_consoleInterface);
 			//g_last_connection_failure = std::chrono::steady_clock::now();

@@ -1,5 +1,6 @@
 #include "TCPListener.h"
-
+#include "Version.h"
+#include "QsyncDefinitions.h"
 
 SOCKET TCPListener::CreateSocket()
 {
@@ -193,14 +194,21 @@ void TCPListener::Run()
 					std::cout << host << " connected on port " << ntohs(client_info.sin_port) << std::endl;
 				}
 				std::cout << "Client Connected: " << client << std::endl;
+				QSyncVersion versionInfo;
+				versionInfo.SetServerVersion(Version::ServerVersion);
+				versionInfo.SetMinVersion(Version::FromVersion);
+				versionInfo.SetMaxVersion(Version::ToVersion);
 				QSyncMessage message;
 				QSyncMsgBody body;
 				body.type = message_type::CONNECTION_ACKNOWLEDGEMENT;
 				json jbody = {
-					{"message", "Welcome!"}
+					{"message", versionInfo.toString()}
 				};
 				body.body = jbody;
+				message.addMessage(body);
+				std::cout << "Sending Connection Acknowledgment. " << message.toString() << std::endl;
 				Send_to_specific(client, message.toString());
+				std::cout << "Sent!" << std::endl;
 			}
 			else
 			{

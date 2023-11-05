@@ -19,6 +19,10 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
+namespace ClientVersion {
+	constexpr int Version[2] = { 9, 1 };
+}
+
 class cQuest
 {
 public:
@@ -42,6 +46,7 @@ private:
 	TESQuest* Quest;
 	std::vector<BGSQuestObjective*> Objectives;
 	void setQuest(TESQuest* Quest);
+	tList<TESQuest::LocalVariableOrObjectivePtr> questVariables;
 };
 
 class QuestManager
@@ -51,6 +56,7 @@ private:
 	std::list<TESQuest*> ActiveQuests;
 	std::list<BGSQuestObjective*> ActiveObjectives;
 	UInt32 ObjectiveCount;
+	bool RetryConnection;
 	bool ConnAckReceived;
 	bool SyncedWithServer;
 	UInt8 SyncState;
@@ -84,6 +90,7 @@ public:
 	UInt8 getSyncState();
 	void syncWithServer(TCPClient* client);
 	void populate_current_quests(tList<BGSQuestObjective> questObjectiveList);
+	bool retryConnection();
 };
 
 class QuestNotInManagerException : public std::exception {

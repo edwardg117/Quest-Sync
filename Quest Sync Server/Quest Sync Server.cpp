@@ -8,6 +8,7 @@
 #include <map>
 
 #include "TCPListener.h"
+#include "Version.h"
 
 void Listener_MessageReceived(TCPListener* listener, int client, std::string msg);
 static inline void ltrim(std::string& s);
@@ -39,6 +40,7 @@ std::list<quest_and_objectives> g_quest_list;
 
 int main(int argc, char* argv[])
 {
+    std::cout << "Quest Sync Server v" << Version::ServerVersion[0] << "." << Version::ServerVersion[1] << std::endl;
     // Setup and config read
     std::string ipAddress = "127.0.0.1"; // Example values used here, they will be overwritten
     int port = 25575;
