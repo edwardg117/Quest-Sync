@@ -131,13 +131,15 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		{
 			_MESSAGE("Conection Success!");
 			Console_Print("Connected to the Quest Sync server!");
-			std::string message = "MessageEx \"Quest Sync plugin is ready.\"";
+			std::string message = "MessageEx \"Connected to Quest Sync Server.\"";
 			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 		}
 		else
 		{
 			_MESSAGE("Unable to connect :(");
 			Console_Print("Unable to connect to the Quest Sync server, will try again in %llu seconds :(", g_wait_for_reconnect_seconds);
+			std::string message = "MessageEx \"Quest Sync Server connection failure.\"";
+			g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 			std::cout << WSAGetLastError() << std::endl;
 		}
 		break;

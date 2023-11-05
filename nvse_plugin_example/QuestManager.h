@@ -20,7 +20,7 @@
 using json = nlohmann::json;
 
 namespace ClientVersion {
-	constexpr int Version[2] = { 9, 1 };
+	constexpr int Version[2] = { 9, 2 };
 }
 
 class cQuest

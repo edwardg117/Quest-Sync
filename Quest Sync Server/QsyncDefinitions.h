@@ -168,7 +168,16 @@ public:
 			{
 				if (ClientMinorVersion <= ToVersion[1])
 				{
-					verdict = true; // Client is at the max supported version and does not exceed the minor veresion
+					if (ClientMajorVersion == FromVersion[0])
+					{
+						if (ClientMinorVersion >= FromVersion[1])
+						{
+							verdict = true; // The min and max Major version is the same, need to make sure it's greater than or equal to the minor version too
+						}
+					}
+					else {
+						verdict = true; // Client is at the max supported version and does not exceed the minor veresion
+					}
 				}
 			}
 			else if (ClientMajorVersion == FromVersion[0])

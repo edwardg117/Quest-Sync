@@ -532,15 +532,15 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 					ConnAckReceived = true;
 					_MESSAGE("Server version is compatible, maintaining connection.");
 					Console_Print("Server version is compatible, maintaining connection.");
-					std::string message = "MessageBoxEx \"Quest Sync plugin is ready.\"";
-					//g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+					std::string message = "MessageEx \"Quest Sync plugin is ready.\"";
+					g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 				}
 				else
 				{
 					_MESSAGE("Server version is incompatible with this version of the plugin, disconnecting and not retrying. Update plugin version to solve.");
 					Console_Print("Server version incompatible, disconnecting from Quest Sync Server.");
 					std::string message = "MessageBoxEx \"Quest Sync plugin is outdated! Disconnecting from the server.\"";
-					//g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
+					g_consoleInterface->RunScriptLine(message.c_str(), nullptr);
 					client->Disconnect();
 					RetryConnection = false;
 				}
