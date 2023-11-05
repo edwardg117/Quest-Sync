@@ -1,9 +1,12 @@
+// Build for xNVSE 6.3.X
 #include "nvse/PluginAPI.h"
 #include "nvse/CommandTable.h"
 #include "nvse/GameAPI.h"
 #include "nvse/ParamInfos.h"
 #include "nvse/GameObjects.h"
 #include <string>
+#include <iostream>
+#include "nvse/utility.h"
 //NoGore is unsupported in xNVSE
 #include "TCPClient.h"
 #include "filthy_ini.h"
