@@ -20,8 +20,10 @@
 using json = nlohmann::json;
 
 namespace ClientVersion {
-	constexpr int Version[2] = { 9, 2 };
+	constexpr int Version[2] = { 9, 3 };
 }
+
+
 
 class cQuest
 {
@@ -31,22 +33,32 @@ public:
 	//~cQuest();
 
 	UInt32 getID();
-	std::vector<BGSQuestObjective*> getObjectives();
-	bool hasObjective(std::string objectiveId);
-	bool hasObjective(BGSQuestObjective* Objective);
+	std::string getIDString();
+	//std::vector<BGSQuestObjective*> getObjectives();
+	//bool hasObjective(std::string objectiveId);
+	//bool hasObjective(BGSQuestObjective* Objective);
 	std::vector<bool> getFlagStates();
 	std::string getFlagString();
-	void addObjective(BGSQuestObjective* Objective);
+	//void addObjective(BGSQuestObjective* Objective);
 	std::string getName();
 	bool isActive();
 	bool isComplete();
 	bool isFailed();
 	bool isObjectiveCompleted(BGSQuestObjective* Objective);
+	std::vector<TESQuest::StageInfo*> getStages();
+	std::vector<stage> GetStagesAsSimple();
+	bool HaveStagesChanged();
+	UInt8 getStage();
+	std::string getStagesString();
+	std::string getObjectivesString(NVSEConsoleInterface* g_consoleInterface);
+	std::vector<VariableInfo*> getQuestVariables();
+	std::string getVariblesString();
 private:
 	TESQuest* Quest;
-	std::vector<BGSQuestObjective*> Objectives;
+	//std::vector<BGSQuestObjective*> Objectives;
 	void setQuest(TESQuest* Quest);
-	tList<TESQuest::LocalVariableOrObjectivePtr> questVariables;
+	//tList<TESQuest::LocalVariableOrObjectivePtr> questVariables;
+	std::vector<stage> PreviousStages;
 };
 
 class QuestManager
@@ -54,8 +66,8 @@ class QuestManager
 private:
 	std::vector<cQuest> AllQuests;
 	std::list<TESQuest*> ActiveQuests;
-	std::list<BGSQuestObjective*> ActiveObjectives;
-	UInt32 ObjectiveCount;
+	//std::list<BGSQuestObjective*> ActiveObjectives;
+	UInt32 ObjectiveCount; // Keeps track of how many objectives were in the Pip-boy last time the process ran
 	bool RetryConnection;
 	bool ConnAckReceived;
 	bool SyncedWithServer;
@@ -67,7 +79,7 @@ private:
 	void Add(std::string refID, NVSEConsoleInterface* g_consoleInterface);
 	void Add(std::string refID, std::string ObjectiveId, NVSEConsoleInterface* g_consoleInterface);
 	void removeActiveQuest(std::string refID);
-	void removeActiveObjective(std::string refID, std::string objectiveId);
+	//void removeActiveObjective(std::string refID, std::string objectiveId);
 
 public:
 	QuestManager();
@@ -77,9 +89,9 @@ public:
 	bool hasQuest(std::string refID);
 	bool hasQuest(UInt32 refID);
 	bool hasQuest(TESQuest* Quest);
-	bool hasStage(std::string QuestID, std::string objectiveId);
-	bool hasStage(UInt32 refID, UInt32 objectiveId);
-	bool hasStage(BGSQuestObjective* Objective);
+	bool hasStageUpdated(std::string QuestID);
+	bool hasStageUpdated(UInt32 refID, UInt32 objectiveId);
+	bool hasStageUpdated(BGSQuestObjective* Objective);
 	bool completedIntro();
 	cQuest getcQuest(std::string refID);
 	cQuest getcQuest(BGSQuestObjective* Objective);

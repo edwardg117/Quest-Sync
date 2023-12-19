@@ -1,5 +1,7 @@
 #include "QuestManager.h"
 
+void printQuestInfo(BGSQuestObjective* Quest, NVSEConsoleInterface* g_consoleInterface);
+
 std::string QuestManager::int_to_hex_string(int number)
 {
 	std::stringstream stream;
@@ -40,51 +42,45 @@ void QuestManager::Add(BGSQuestObjective* Objective, QSyncMsgBody* MessageForSer
 		cQuest new_quest = cQuest(Objective);
 		AllQuests.push_back(new_quest);
 		if (new_quest.isActive()) { ActiveQuests.push_back(Objective->quest); }
-		if (!new_quest.isObjectiveCompleted(Objective)) { ActiveObjectives.push_back(Objective); }
 
 		ObjectiveCount++;
-		_MESSAGE("%s '%s' stage: %s added!", int_to_hex_string(new_quest.getID()).c_str(), new_quest.getName().c_str(), std::to_string(Objective->objectiveId).c_str());
+		_MESSAGE("%s '%s' stage: %s added!", int_to_hex_string(new_quest.getID()).c_str(), new_quest.getName().c_str(), std::to_string(new_quest.getStage()).c_str());
 
 		if (MessageForServer != nullptr)
 		{
-			json quest_info =
-			{
-				{"ID", int_to_hex_string(new_quest.getID())},
-				{"Stage", std::to_string(Objective->objectiveId)},
-				{"Name", new_quest.getName()},
-				//{"Flags", flagString}
+			QSyncQuest quest_info = QSyncQuest(new_quest.getIDString(), std::to_string(new_quest.getStage()), new_quest.GetStagesAsSimple(), new_quest.isActive(), new_quest.isComplete(), new_quest.isFailed());
+			json jsonQuest = {
+				{"Quest", quest_info.ToString()}
 			};
 			MessageForServer->type = message_type::NEW_QUEST;
-			MessageForServer->body = quest_info;
-		}
-	}
-	else if (!this->hasStage(Objective))
-	{
-		// Quest is already known, add stage
-		cQuest quest = getcQuest(Objective);
-		quest.addObjective(Objective);
-		if (!quest.isObjectiveCompleted(Objective)) { ActiveObjectives.push_back(Objective); }
-		ObjectiveCount++;
-		_MESSAGE("%s '%s' new stage: %s", int_to_hex_string(quest.getID()).c_str(), quest.getName().c_str(), std::to_string(Objective->objectiveId).c_str());
-
-		if (MessageForServer != nullptr)
-		{
-			json quest_info =
-			{
-				{"ID", int_to_hex_string(quest.getID())},
-				{"Stage", std::to_string(Objective->objectiveId)},
-				{"Name", quest.getName()},
-				//{"Flags", flagString}
-			};
-			MessageForServer->type = message_type::QUEST_UPDATED;
-			MessageForServer->body = quest_info;
+			MessageForServer->body = jsonQuest;
 		}
 	}
 	else
 	{
-		// Already have, do not want
+		// Quest is already known, add stage
 		cQuest quest = getcQuest(Objective);
-		_MESSAGE("%s '%s' stage: %s is not new and already exists in the quest manager.", int_to_hex_string(quest.getID()).c_str(), quest.getName().c_str(), std::to_string(Objective->objectiveId).c_str());
+		if (quest.HaveStagesChanged()) {
+			ObjectiveCount++;
+			_MESSAGE("%s '%s' Stage: %s new objective: %s", int_to_hex_string(quest.getID()).c_str(), quest.getName().c_str(), std::to_string(quest.getStage()).c_str(), std::to_string(Objective->objectiveId).c_str());
+
+			if (MessageForServer != nullptr)
+			{
+				//quest.
+				QSyncQuest quest_info = QSyncQuest(quest.getIDString(), std::to_string(quest.getStage()), quest.GetStagesAsSimple(), quest.isActive(), quest.isComplete(), quest.isFailed());
+				json jsonQuest = {
+					{"Quest", quest_info.ToString()}
+				};
+				MessageForServer->type = message_type::QUEST_UPDATED;
+				MessageForServer->body = jsonQuest;
+			}
+		}
+		else
+		{
+			// Already have, do not want
+			_MESSAGE("%s '%s' stage: %s is not new and already exists in the quest manager.", int_to_hex_string(quest.getID()).c_str(), quest.getName().c_str(), std::to_string(quest.getStage()).c_str());
+		}
+		
 	}
 }
 
@@ -104,7 +100,7 @@ void QuestManager::Add(std::string refID, NVSEConsoleInterface* g_consoleInterfa
 	}
 }
 
-void QuestManager::Add(std::string refID, std::string ObjectiveId, NVSEConsoleInterface* g_consoleInterface)
+void QuestManager::Add(std::string refID, std::string StageId, NVSEConsoleInterface* g_consoleInterface)
 {
 	// Quest in pip-boy?
 	if (!this->hasQuest(refID))
@@ -112,18 +108,18 @@ void QuestManager::Add(std::string refID, std::string ObjectiveId, NVSEConsoleIn
 		// Quest is completely new
 		// Can only add quest here atm
 		std::string startquest = "StartQuest " + refID;
-		std::string setstage = "SetStage " + refID + " " + ObjectiveId;
+		std::string setstage = "SetStage " + refID + " " + StageId;
 		g_consoleInterface->RunScriptLine(setstage.c_str(), nullptr);
 		// TODO Tell server
 	}
-	else if (!this->hasStage(refID, ObjectiveId))
+	else if (!this->hasStageUpdated(refID))
 	{
 		// Quest is already known, add stage
 		//this->getcQuest(refID).addObjective(Objective);
 		// Can only add new objective here
-		std::string setstage = "SetStage " + refID + " " + ObjectiveId;
+		std::string setstage = "SetStage " + refID + " " + StageId;
 		// Updating a quest to the next stage usually makes it visible if it isn't already for some reason
-		_MESSAGE("Setting stage for %s to %s", refID, ObjectiveId);
+		_MESSAGE("Setting stage for %s to %s", refID, StageId);
 		g_consoleInterface->RunScriptLine2(setstage.c_str(), nullptr, false);
 		// TODO Tell server
 	}
@@ -174,38 +170,40 @@ bool QuestManager::hasQuest(TESQuest* Quest)
 	return has_quest;
 }
 
-bool QuestManager::hasStage(std::string QuestID, std::string objectiveId)
+bool QuestManager::hasStageUpdated(std::string QuestID)
 {
-	bool has_objective = false;
-	for (auto quest : AllQuests)
-	{
-		if (int_to_hex_string(quest.getID()) == QuestID) // Find quest in list
-		{
-			if (quest.hasObjective(objectiveId))
-			{
-				has_objective = true;
-			}
-			break;
-		}
-	}
-	return has_objective;
+	//bool has_objective = false;
+	//for (auto quest : AllQuests)
+	//{
+	//	if (int_to_hex_string(quest.getID()) == QuestID) // Find quest in list
+	//	{
+	//		if (quest.hasObjective(objectiveId))
+	//		{
+	//			has_objective = true;
+	//		}
+	//		break;
+	//	}
+	//}
+	//return has_objective;
+	return this->getcQuest(QuestID).HaveStagesChanged();
 }
 
-bool QuestManager::hasStage(UInt32 refID, UInt32 objectiveId)
+bool QuestManager::hasStageUpdated(UInt32 refID, UInt32 objectiveId)
 {
-	bool has_objective = false;
-	for (auto quest : AllQuests)
-	{
-		if (quest.getID() == refID) // Find quest in list
-		{
-			if (quest.hasObjective(std::to_string(objectiveId)))
-			{
-				has_objective = true;
-			}
-			break;
-		}
-	}
-	return has_objective;
+	//bool has_objective = false;
+	//for (auto quest : AllQuests)
+	//{
+	//	if (quest.getID() == refID) // Find quest in list
+	//	{
+	//		if (quest.hasObjective(std::to_string(objectiveId)))
+	//		{
+	//			has_objective = true;
+	//		}
+	//		break;
+	//	}
+	//}
+	//return has_objective;
+	return this->getcQuest(int_to_hex_string(refID)).HaveStagesChanged();
 }
 
 void QuestManager::removeActiveQuest(std::string refID)
@@ -220,12 +218,6 @@ void QuestManager::removeActiveQuest(std::string refID)
 			_MESSAGE("Removed %s %s from the active quest list", refID.c_str(), Quest.getName().c_str());
 			ActiveQuests.erase(active_quest_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
 
-			// If quest is being removed, also remove the objectives
-			for (auto objective : Quest.getObjectives())
-			{
-				removeActiveObjective(refID, std::to_string(objective->objectiveId)); // TODO this will pass objectives that aren't being monitored, don't care right now...
-			}
-
 			break;
 		}
 		else
@@ -235,44 +227,46 @@ void QuestManager::removeActiveQuest(std::string refID)
 	}
 }
 
-bool QuestManager::hasStage(BGSQuestObjective* Objective)
+bool QuestManager::hasStageUpdated(BGSQuestObjective* Objective)
 {
-	bool has_objective = false;
-	for (auto quest : AllQuests)
-	{
-		if (quest.getID() == Objective->quest->refID) // Find quest in list
-		{
-			if (quest.hasObjective(Objective))
-			{
-				has_objective = true;
-			}
-			break;
-		}
-	}
-	return has_objective;
+	//bool has_objective = false;
+	//
+	//for (auto quest : AllQuests)
+	//{
+	//	if (quest.getID() == Objective->quest->refID) // Find quest in list
+	//	{
+	//		if (quest.hasObjective(Objective))
+	//		{
+	//			has_objective = true;
+	//		}
+	//		break;
+	//	}
+	//}
+	//return has_objective;
+	return this->getcQuest(Objective).HaveStagesChanged();
 }
 
-void QuestManager::removeActiveObjective(std::string refID, std::string objectiveId)
-{
-	auto active_objective_iterator = ActiveObjectives.begin();
-	while (active_objective_iterator != ActiveObjectives.end())
-	{
-		BGSQuestObjective* objective = (*active_objective_iterator);
-		cQuest Quest(objective);
-		if (int_to_hex_string(Quest.getID()) == refID && std::to_string(objective->objectiveId) == objectiveId) // If the completed flag is set
-		{
-
-			_MESSAGE("Removed stage %s, %s %s from the active objective list", std::to_string(objective->objectiveId), refID.c_str(), Quest.getName().c_str());
-			// Remove the objective from the list
-			ActiveObjectives.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node, as using ++ returns the node you are incrementing from
-			break;
-		}
-		else
-		{
-			++active_objective_iterator;
-		}
-	}
-}
+//void QuestManager::removeActiveObjective(std::string refID, std::string objectiveId)
+//{
+//	auto active_objective_iterator = ActiveObjectives.begin();
+//	while (active_objective_iterator != ActiveObjectives.end())
+//	{
+//		BGSQuestObjective* objective = (*active_objective_iterator);
+//		cQuest Quest(objective);
+//		if (int_to_hex_string(Quest.getID()) == refID && std::to_string(objective->objectiveId) == objectiveId) // If the completed flag is set
+//		{
+//
+//			_MESSAGE("Removed stage %s, %s %s from the active objective list", std::to_string(objective->objectiveId), refID.c_str(), Quest.getName().c_str());
+//			// Remove the objective from the list
+//			ActiveObjectives.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node, as using ++ returns the node you are incrementing from
+//			break;
+//		}
+//		else
+//		{
+//			++active_objective_iterator;
+//		}
+//	}
+//}
 
 cQuest QuestManager::getcQuest(std::string refID)
 {
@@ -302,7 +296,6 @@ void QuestManager::reset()
 {
 	AllQuests.clear();
 	ActiveQuests.clear();
-	ActiveObjectives.clear();
 	ObjectiveCount = 0;
 	RetryConnection = true;
 	ConnAckReceived = false;
@@ -351,7 +344,6 @@ void QuestManager::populate_current_quests(tList<BGSQuestObjective> questObjecti
 	_MESSAGE("Re-populating the current quest and objective lists...");
 	AllQuests.clear(); // Just in case this is called while there's already stuff in it, this function shouldn't cause problems by resetting the positions of these things in any case
 	ActiveQuests.clear();
-	ActiveObjectives.clear();
 	ObjectiveCount = 0;
 	std::list<BGSQuestObjective*> reversed_list;
 
@@ -381,6 +373,7 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 		//QSyncMessage message_for_server;
 		for (int current_new_quest = 0; current_new_quest < num_new_quests; current_new_quest++) // Do only new entries in the pip-boy
 		{
+			printQuestInfo(iterator->data, g_consoleInterface);
 			QSyncMsgBody message_body;
 			this->Add(iterator->data, &message_body);
 
@@ -396,34 +389,44 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 		//client.send_message(message_for_server.toString());
 	}
 
-	auto active_objective_iterator = ActiveObjectives.begin();
-	while (active_objective_iterator != ActiveObjectives.end())
-	{
-		BGSQuestObjective* objective = (*active_objective_iterator);
-		cQuest Quest(objective);
-		if (Quest.isObjectiveCompleted(objective)) // If the completed flag is set
-		{
-			UInt32 StageID = objective->objectiveId;
+	//auto active_objective_iterator = ActiveObjectives.begin();
+	//while (active_objective_iterator != ActiveObjectives.end())
+	//{
+	//	BGSQuestObjective* objective = (*active_objective_iterator);
+	//	cQuest Quest(objective);
+	//	if (Quest.isObjectiveCompleted(objective)) // If the completed flag is set
+	//	{
+	//		//UInt32 StageID = objective->objectiveId;
+	//		//Quest.getStage();
 
-			_MESSAGE("%s stage %i completed.", Quest.getName().c_str(), StageID);
-			QSyncMsgBody msg;
-			msg.type = message_type::OBJECTIVE_COMPLETED;
-			json stage_info =
-			{
-				{"Stage", std::to_string(StageID)},
-				{"ID", int_to_hex_string(Quest.getID())}
-			};
-			msg.body = stage_info;
-			message_for_server.addMessage(msg);
+	//		_MESSAGE("%s stage %i completed.", Quest.getName().c_str(), Quest.getStage());
 
-			// Remove the objective from the list
-			ActiveObjectives.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node, as using ++ returns the node you are incrementing from
-		}
-		else
-		{
-			++active_objective_iterator;
-		}
-	}
+
+	//		printQuestInfo(objective, g_consoleInterface);
+
+
+
+
+
+
+	//		QSyncMsgBody msg;
+	//		msg.type = message_type::OBJECTIVE_COMPLETED;
+	//		json stage_info =
+	//		{
+	//			{"Stage", std::to_string(Quest.getStage())},
+	//			{"ID", int_to_hex_string(Quest.getID())}
+	//		};
+	//		msg.body = stage_info;
+	//		message_for_server.addMessage(msg);
+
+	//		// Remove the objective from the list
+	//		ActiveObjectives.erase(active_objective_iterator++); // First increments the iterator with ++, then removes the previous node, as using ++ returns the node you are incrementing from
+	//	}
+	//	else
+	//	{
+	//		++active_objective_iterator;
+	//	}
+	//}
 
 	auto active_quest_iterator = ActiveQuests.begin();
 	while (active_quest_iterator != ActiveQuests.end())
@@ -441,13 +444,11 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 					_MESSAGE("%s Completed!", Quest.getName().c_str());
 					QSyncMsgBody msg;
 					msg.type = message_type::QUEST_COMPLETED;
-					json quest_info =
-					{
-						{"ID", int_to_hex_string(Quest.getID())},
-						{"Name", Quest.getName()},
-						//{"Flags", flagString}
+					QSyncQuest quest_info = QSyncQuest(Quest.getIDString(), std::to_string(Quest.getStage()), Quest.GetStagesAsSimple(), Quest.isActive(), Quest.isComplete(), Quest.isFailed());
+					json jsonQuest = {
+						{"Quest", quest_info.ToString()}
 					};
-					msg.body = quest_info;
+					msg.body = jsonQuest;
 					message_for_server.addMessage(msg);
 				}
 				else
@@ -455,13 +456,11 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 					_MESSAGE("%s Failed!", Quest.getName().c_str());
 					QSyncMsgBody msg;
 					msg.type = message_type::QUEST_FAILED;
-					json quest_info =
-					{
-						{"ID", int_to_hex_string(Quest.getID())},
-						{"Name", Quest.getName()},
-						//{"Flags", flagString}
+					QSyncQuest quest_info = QSyncQuest(Quest.getIDString(), std::to_string(Quest.getStage()), Quest.GetStagesAsSimple(), Quest.isActive(), Quest.isComplete(), Quest.isFailed());
+					json jsonQuest = {
+						{"Quest", quest_info.ToString()}
 					};
-					msg.body = quest_info;
+					msg.body = jsonQuest;
 					message_for_server.addMessage(msg);
 				}
 			}
@@ -470,18 +469,20 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 				_MESSAGE("Quest '%s' '%s' Has been removed from the active list and is not completed or failed! %s", int_to_hex_string(Quest.getID()).c_str(), Quest.getName().c_str(), Quest.getFlagString().c_str());
 				QSyncMsgBody msg;
 				msg.type = message_type::QUEST_INACTIVE;
-				json quest_info =
-				{
-					{"ID", int_to_hex_string(Quest.getID())},
-					{"Name", Quest.getName()},
-					{"Flags", Quest.getFlagString()}
+				QSyncQuest quest_info = QSyncQuest(Quest.getIDString(), std::to_string(Quest.getStage()), Quest.GetStagesAsSimple(), Quest.isActive(), Quest.isComplete(), Quest.isFailed());
+				json jsonQuest = {
+					{"Quest", quest_info.ToString()}
 				};
-				msg.body = quest_info;
+				msg.body = jsonQuest;
 				message_for_server.addMessage(msg);
 			}
 			// Remove this quest from the list
 			ActiveQuests.erase(active_quest_iterator++); // First increments the iterator with ++, then removes the previous node as using ++ returns the node you are incrementing from
 		}
+		//else if (Quest.HaveStagesChanged())
+		//{
+
+		//}
 		else
 		{
 			++active_quest_iterator; // Move to the next node, this one is still active
@@ -549,52 +550,44 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 			case message_type::START_QUEST:
 			{
 				_MESSAGE("Server wants me to start a new quest:");
-				auto quest_info = instruction["Body"];
-				std::string ID;
-				quest_info["ID"].get_to(ID);
-				std::string Name;
-				quest_info["Name"].get_to(Name);
-				std::string Stage;
-				quest_info["Stage"].get_to(Stage);
-				//std::string Flags;
-				//quest_info["Flags"].get_to(Flags);
-				_MESSAGE("%s %s %s", ID.c_str(), Name.c_str(), Stage.c_str());
-				// TODO investigate why this doesn't display the quest for specific quests
-				this->Add(ID, Stage, g_consoleInterface); // Add through console
+				auto quest_json = instruction["Body"];
+				std::string questString;
+				quest_json["Quest"].get_to(questString);
+				QSyncQuest qQuest(questString);
+
+				_MESSAGE("%s Stage: %s", qQuest.GetRefId().c_str(), qQuest.GetStageId().c_str());
+				this->Add(qQuest.GetRefId(), qQuest.GetStageId(), g_consoleInterface); // Add through console
 				this->Add(questObjectiveList.Head()->data, nullptr); // Add the newly aquired quest here (does nothing if quest already exists)
 			}
 			break;
 			case message_type::UPDATE_QUEST:
 			{
 				_MESSAGE("Server wants me to progress a quest:");
-				auto quest_info = instruction["Body"];
-				std::string ID;
-				quest_info["ID"].get_to(ID);
-				std::string Name;
-				quest_info["Name"].get_to(Name);
-				std::string Stage;
-				quest_info["Stage"].get_to(Stage);
-				//std::string Flags;
-				//quest_info["Flags"].get_to(Flags);
-				_MESSAGE("%s %s %s", ID.c_str(), Name.c_str(), Stage.c_str());
-				this->Add(ID, Stage, g_consoleInterface); // Add through console
+				auto quest_json = instruction["Body"];
+				std::string questString;
+				quest_json["Quest"].get_to(questString);
+				QSyncQuest qQuest(questString);
+
+				_MESSAGE("%s Stage: %s", qQuest.GetRefId().c_str(), qQuest.GetStageId().c_str());
+				this->Add(qQuest.GetRefId(), qQuest.GetStageId(), g_consoleInterface); // Add through console
 				this->Add(questObjectiveList.Head()->data, nullptr); // Add the newly aquired quest here (does nothing if quest already exists)
 			}
 			break;
 			case message_type::COMPLETE_OBJECTIVE:
 			{
-				_MESSAGE("Server has told me to complete a quest objective");
-				auto stage_info = instruction["Body"];
-				//SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
-				std::string ID;
-				stage_info["ID"].get_to(ID);
-				std::string Stage;
-				stage_info["Stage"].get_to(Stage);
-				_MESSAGE("%s %s", ID.c_str(), Stage.c_str());
-				std::string completeStage = "SetObjectiveCompleted " + ID + " " + Stage + " 1";
-				g_consoleInterface->RunScriptLine2(completeStage.c_str(), nullptr, false);
-				this->removeActiveObjective(ID, Stage);
-				// TODO figure out how much XP should be earned
+				// TODO: Remove this code maybe, shouldn't be requied
+				//_MESSAGE("Server has told me to complete a quest objective");
+				//auto stage_info = instruction["Body"];
+				////SetObjectiveCompleted Quest:baseform objectiveIndex:int completedFlag:int{0/1}
+				//std::string ID;
+				//stage_info["ID"].get_to(ID);
+				//std::string Stage;
+				//stage_info["Stage"].get_to(Stage);
+				//_MESSAGE("%s %s", ID.c_str(), Stage.c_str());
+				//std::string completeStage = "SetObjectiveCompleted " + ID + " " + Stage + " 1";
+				//g_consoleInterface->RunScriptLine2(completeStage.c_str(), nullptr, false);
+				//this->removeActiveObjective(ID, Stage);
+				_MESSAGE("Server sent a message using COMPLETE_OBJECTIVE, this is removed.");
 
 			}
 
@@ -602,38 +595,30 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 			case message_type::COMPLETE_QUEST:
 			{
 				_MESSAGE("Server wants me to complete quest:");
-				auto quest_info = instruction["Body"];
-				std::string ID;
-				quest_info["ID"].get_to(ID);
-				std::string Name;
-				quest_info["Name"].get_to(Name);
-				std::string Stage;
-				quest_info["Stage"].get_to(Stage);
-				std::string Flags;
-				quest_info["Flags"].get_to(Flags);
-				_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
-				std::string complete = "CompleteQuest " + ID;
+				auto quest_json = instruction["Body"];
+				std::string questString;
+				quest_json["Quest"].get_to(questString);
+				QSyncQuest qQuest(questString);
+
+				_MESSAGE("%s %s", qQuest.GetRefId().c_str(), qQuest.GetStageId().c_str());
+				std::string complete = "CompleteQuest " + qQuest.GetRefId();
 				g_consoleInterface->RunScriptLine(complete.c_str(), nullptr);
-				this->removeActiveQuest(ID);
+				this->removeActiveQuest(qQuest.GetRefId());
 				// TODO figure out how much XP should be earned
 			}
 			break;
 			case message_type::FAIL_QUEST:
 			{
 				_MESSAGE("Server wants me to fail quest:");
-				auto quest_info = instruction["Body"];
-				std::string ID;
-				quest_info["ID"].get_to(ID);
-				std::string Name;
-				quest_info["Name"].get_to(Name);
-				std::string Stage;
-				quest_info["Stage"].get_to(Stage);
-				std::string Flags;
-				quest_info["Flags"].get_to(Flags);
-				_MESSAGE("%s %s %s %s", ID.c_str(), Name.c_str(), Stage.c_str(), Flags.c_str());
-				std::string fail = "FailQuest " + ID;
+				auto quest_json = instruction["Body"];
+				std::string questString;
+				quest_json["Quest"].get_to(questString);
+				QSyncQuest qQuest(questString);
+
+				_MESSAGE("%s %s", qQuest.GetRefId().c_str(), qQuest.GetStageId().c_str());
+				std::string fail = "FailQuest " + qQuest.GetRefId();
 				g_consoleInterface->RunScriptLine(fail.c_str(), nullptr);
-				this->removeActiveQuest(ID);
+				this->removeActiveQuest(qQuest.GetRefId());
 			}
 			break;
 			case message_type::CURRENT_ACTIVE_QUESTS:
@@ -641,10 +626,7 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 				// Server has sent me a list of all quests and objectives that I should have active
 				_MESSAGE("Sever has replied with current active quests and objectives");
 				json quest_list = instruction["Body"];
-				std::string ID;
-				std::string Name;
-				std::list<std::string> stages;
-				std::vector<std::string> stage_list;
+
 				_MESSAGE("Expecting a crash here...");
 				//quest_list.get_to(stage_list);
 				_MESSAGE("%s", quest_list.dump().c_str());
@@ -654,34 +636,50 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 					//_MESSAGE(quest_s.c_str());
 					_MESSAGE("Or here???");
 					//auto quest = json::parse(quest_s);
+					std::string questString;
+					quest["Quest"].get_to(questString);
+					QSyncQuest qQuest(questString);
 					_MESSAGE("Quest parsed...");
-					quest["ID"].get_to(ID);
-					quest["Name"].get_to(Name);
-					quest["Stages"].get_to(stages);
+					
 
 					_MESSAGE("Extracted info, checking against the current lists...");
 					// Let Add decide what to do with this information
-					for (auto objective : stages)
+					for (auto stage : qQuest.GetStages())
 					{
-						this->Add(ID, objective, g_consoleInterface); // Add through console
-						this->Add(questObjectiveList.Head()->data, nullptr); // Add the newly aquired quest here (does nothing if quest already exists)
+						if (stage.Completed == true)
+						{
+							this->Add(qQuest.GetRefId(), qQuest.GetStageId(), g_consoleInterface); // Add through console
+							this->Add(questObjectiveList.Head()->data, nullptr); // Add the newly aquired quest here (does nothing if quest already exists)
+						}
 					}
 				}
 				// Create a list of current quests and objectives
+				//json current_quests = json::array();
+				//for (auto objective : ActiveObjectives)
+				//{
+				//	std::string quest_name = objective->quest->GetFullName() ? objective->quest->GetFullName()->name.CStr() : "<no name>";
+				//	json quest_info =
+				//	{
+				//		{"ID", int_to_hex_string(objective->quest->refID)},
+				//		{"Stage", std::to_string(objective->objectiveId)},
+				//		{"Name", quest_name},
+				//		//{"Flags", flagString}
+				//	};
+				//	_MESSAGE("Telling the server about %s stage %s", quest_name.c_str(), std::to_string(objective->objectiveId).c_str());
+				//	current_quests.push_back(quest_info);
+				//}
 				json current_quests = json::array();
-				for (auto objective : ActiveObjectives)
+				for (auto quest : ActiveQuests)
 				{
-					std::string quest_name = objective->quest->GetFullName() ? objective->quest->GetFullName()->name.CStr() : "<no name>";
-					json quest_info =
-					{
-						{"ID", int_to_hex_string(objective->quest->refID)},
-						{"Stage", std::to_string(objective->objectiveId)},
-						{"Name", quest_name},
-						//{"Flags", flagString}
+					cQuest cquest(quest);
+					QSyncQuest quest_info = QSyncQuest(cquest.getIDString(), std::to_string(cquest.getStage()), cquest.GetStagesAsSimple());
+					json jsonQuest = {
+						{"Quest", quest_info.ToString()}
 					};
-					_MESSAGE("Telling the server about %s stage %s", quest_name.c_str(), std::to_string(objective->objectiveId).c_str());
-					current_quests.push_back(quest_info);
+
+					current_quests.push_back(jsonQuest);
 				}
+				_MESSAGE("Telling the server about %d quests", current_quests.size());
 				QSyncMsgBody message_body(message_type::ACTIVE_QUESTS, current_quests);
 				message_for_server.addMessage(message_body);
 
@@ -723,47 +721,55 @@ cQuest::cQuest(TESQuest* Quest)
 cQuest::cQuest(BGSQuestObjective* Objective)
 {
 	setQuest(Objective->quest);
-	addObjective(Objective);
+	//addObjective(Objective);
 }
 
+/// <summary>
+/// Gets the quest ID as a UInt32
+/// </summary>
+/// <returns></returns>
 UInt32 cQuest::getID()
 {
 	return Quest->refID;
 }
 
-std::vector<BGSQuestObjective*> cQuest::getObjectives()
-{
-	return Objectives;
-}
+//std::vector<BGSQuestObjective*> cQuest::getObjectives()
+//{
+//	return Objectives;
+//}
 
-bool cQuest::hasObjective(std::string objectiveId)
-{
-	bool has_objective = false;
-	for (auto objective : Objectives) // Does it have the objective?
-	{
-		if (objective->objectiveId == stoi(objectiveId))
-		{
-			has_objective = true;
-			break;
-		}
-	}
-	return has_objective;
-}
+//bool cQuest::hasObjective(std::string objectiveId)
+//{
+//	bool has_objective = false;
+//	for (auto objective : Objectives) // Does it have the objective?
+//	{
+//		if (objective->objectiveId == stoi(objectiveId))
+//		{
+//			has_objective = true;
+//			break;
+//		}
+//	}
+//	return has_objective;
+//}
 
-bool cQuest::hasObjective(BGSQuestObjective* Objective)
-{
-	bool has_objective = false;
-	for (auto objective : Objectives) // Does it have the objective?
-	{
-		if (objective->objectiveId == Objective->objectiveId)
-		{
-			has_objective = true;
-			break;
-		}
-	}
-	return has_objective;
-}
+//bool cQuest::hasObjective(BGSQuestObjective* Objective)
+//{
+//	bool has_objective = false;
+//	for (auto objective : Objectives) // Does it have the objective?
+//	{
+//		if (objective->objectiveId == Objective->objectiveId)
+//		{
+//			has_objective = true;
+//			break;
+//		}
+//	}
+//	return has_objective;
+//}
 
+/// <summary>
+/// Get quest flags as a list of booleans
+/// </summary>
+/// <returns></returns>
 std::vector<bool> cQuest::getFlagStates()
 {
 	std::vector<bool> flag_states; // A vector of states for the quest flags
@@ -797,11 +803,15 @@ std::string cQuest::getFlagString()
 	return flagString;
 }
 
-void cQuest::addObjective(BGSQuestObjective* Objective)
-{
-	Objectives.push_back(Objective);
-}
+//void cQuest::addObjective(BGSQuestObjective* Objective)
+//{
+//	Objectives.push_back(Objective);
+//}
 
+/// <summary>
+/// Get the full name of the quest.
+/// </summary>
+/// <returns></returns>
 std::string cQuest::getName()
 {
 	return Quest->GetFullName() ? Quest->GetFullName()->name.CStr() : "<no name>";
@@ -826,8 +836,213 @@ bool cQuest::isObjectiveCompleted(BGSQuestObjective* Objective)
 {
 	return (Objective->status & 2) == 2;
 }
-
+/// <summary>
+/// Init the cQuest object
+/// </summary>
+/// <param name="Quest"></param>
 void cQuest::setQuest(TESQuest* Quest)
 {
 	this->Quest = Quest;
+	this->PreviousStages.clear();
+
+	std::vector<TESQuest::StageInfo*> stageInfo = this->getStages();
+
+	for (int i = 0; i < stageInfo.size(); i++)
+	{
+		stage newStage = {
+			stageInfo[i]->stage,
+			stageInfo[i]->isDone
+		};
+		this->PreviousStages.push_back(newStage);
+	}
+
 }
+/// <summary>
+/// Get the quest ID as a hex string, this is the FormID
+/// </summary>
+/// <returns>FormID for quest</returns>
+std::string cQuest::getIDString()
+{
+	std::stringstream stream;
+	int number = this->getID();
+	stream << std::hex << number;
+	return std::string(stream.str());
+}
+
+/// <summary>
+/// Gets the current stage for a quest
+/// </summary>
+/// <returns>Current stage ID</returns>
+UInt8 cQuest::getStage()
+{
+	return this->Quest->currentStage;
+}
+
+/// <summary>
+/// Gets all stages for a quest
+/// </summary>
+/// <returns>All quest stages and if completed</returns>
+std::vector<TESQuest::StageInfo*> cQuest::getStages()
+{
+	std::vector<TESQuest::StageInfo*> result;
+	auto ittr = Quest->stages.Begin();
+	while (ittr != Quest->stages.end())
+	{
+		result.push_back(ittr.Get());
+		ittr.Next();
+	}
+	return result;
+}
+
+std::vector<stage> cQuest::GetStagesAsSimple()
+{
+	std::vector<stage> stages;
+	stage newStage = stage();
+	std::vector<TESQuest::StageInfo*> stageInfo = this->getStages();
+
+	for (int i = 0; i < stageInfo.size(); i++)
+	{
+		newStage.ID = stageInfo[i]->stage;
+		newStage.Completed = stageInfo[i]->isDone;
+		stages.push_back(newStage);
+	}
+
+	return stages;
+}
+
+/// <summary>
+/// Checks to see if the quest has updated since the last time this function was called.
+/// </summary>
+/// <returns>If any stages have changed</returns>
+bool cQuest::HaveStagesChanged()
+{
+	bool result = false;
+	std::vector<TESQuest::StageInfo*> currentStages = this->getStages();
+
+	for (int i = 0; i < PreviousStages.size(); i++)
+	{
+		if (PreviousStages[i].Completed != currentStages[i]->isDone)
+		{
+			result = true;
+			// Update to remember new stage
+			PreviousStages[i].Completed = currentStages[i]->isDone;
+			// Don't break because more than one stage could potentially be updated and doing a second loop to update the state is silly
+		}
+	}
+
+	return result;
+}
+
+std::string cQuest::getStagesString()
+{
+	std::vector<TESQuest::StageInfo*> stages = this->getStages();
+	std::string result = "";
+	for (TESQuest::StageInfo* stage : stages)
+	{
+		result += "Stage:\t\t" + std::to_string(stage->stage);
+		result += "\tIsDone:\t" + std::to_string(stage->isDone);
+		result += "\n";
+	}
+	return result;
+}
+
+
+
+
+
+// Stolen from JIP. Like straight up theft, no asking.
+
+
+std::string cQuest::getObjectivesString(NVSEConsoleInterface* g_consoleInterface)
+{
+
+	std::string result = "";
+
+		
+
+	result += "Objectives?\n";
+
+		//UInt32 completed = 1;
+		////TempElements* tmpElements = GetTempElements();
+		//auto iter = Quest->lVarOrObjectives.Head();
+		//if (completed) completed = 2;
+		//completed++;
+		//do
+		//{
+		//	if (BGSQuestObjective* objective = (BGSQuestObjective*)iter->data; objective && IS_TYPE(objective, BGSQuestObjective) && (completed == (objective->status & 3)))
+		//		//tmpElements->Append((int)objective->objectiveId);
+		//	result += (int)objective->objectiveId;
+		//} while (iter = iter->next);
+		/*std::stringstream stream;
+		* 
+		int number = this->getID();
+		stream << std::hex << number;
+		return std::string(stream.str());*/
+
+		
+		
+
+		
+		//result += tmpElements->Data()->String();
+		result += "\n";
+
+		TESObjectREFR* test = TESObjectREFR::Create(true);
+		std::string command = "GetQuestObjectives ";
+		command += getIDString();
+		command += " 1";
+		g_consoleInterface->RunScriptLine(command.c_str(), test);
+
+
+	return result;
+}
+
+std::vector<VariableInfo*> cQuest::getQuestVariables()
+{
+	std::vector<VariableInfo*> variables;
+	auto ittr = Quest->lVarOrObjectives.Begin();
+	while (ittr != Quest->lVarOrObjectives.end())
+	{
+		variables.push_back(ittr->varInfoIndex);
+		_MESSAGE("?: %lu", ittr->varInfoIndex->idx);
+		_MESSAGE("??: %llu", ittr->varInfoIndex->idx);
+		_MESSAGE("???: %s", ittr->varInfoIndex->name);
+		ittr.Next();
+	}
+
+	return variables;
+}
+
+
+std::string cQuest::getVariblesString()
+{
+	std::vector<VariableInfo*> variables = this->getQuestVariables();
+	std::string result = "";
+	for (auto variable : variables)
+	{
+		result += "ID: " + std::to_string(variable->idx);
+		result += "\n\tName: ";
+		//result += variable->name.CStr();
+		result += variable->GetTESForm()->GetFullName()->name.CStr();
+		result += "\n\ttype: " + std::to_string(variable->type);
+		result += "\n\tdata: " + std::to_string(variable->data);
+		result += "\n";
+	}
+
+	return result;
+}
+
+void printQuestInfo(BGSQuestObjective* Quest, NVSEConsoleInterface* g_consoleInterface)
+{
+	cQuest cquest = cQuest(Quest);
+	_MESSAGE("Quest ID: %s", cquest.getIDString().c_str());
+	_MESSAGE("Name: %s", cquest.getName().c_str());
+	_MESSAGE("Flags: %s", cquest.getFlagString().c_str());
+	_MESSAGE("Stage: %d", cquest.getStage());
+	_MESSAGE("Stages:");
+	_MESSAGE("%s", cquest.getStagesString().c_str());
+	/*_MESSAGE("Objectives");
+	_MESSAGE("%s", cquest.getObjectivesString(g_consoleInterface).c_str());*/
+	/*_MESSAGE("Variables:");
+	_MESSAGE("%s", cquest.getVariblesString().c_str());*/
+}
+

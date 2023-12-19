@@ -23,20 +23,25 @@ std::vector<std::string> g_questBlacklist = {
         "10a214"          // Back in the Saddle
 };
 
-struct quest_and_objectives
-{
-    std::string ID;
-    std::string Name;
-    bool Active = true;
-    bool Completed = false;
-    bool Failed = false;
-    std::vector<std::string> Stages;
-};
+//struct quest_and_objectives
+//{
+//    std::string ID;
+//    std::string Name;
+//    bool Active = true;
+//    bool Completed = false;
+//    bool Failed = false;
+//    std::vector<stage> Stages;
+//
+//    bool operator<(const quest_and_objectives& other) const
+//    {
+//        return ID < other.ID;
+//    }
+//};
 enum class serverAction {
     NONE,
     SHUTDOWN
 };
-std::list<quest_and_objectives> g_quest_list;
+std::vector<QSyncQuest> g_quest_list;
 
 int main(int argc, char* argv[])
 {
@@ -73,32 +78,74 @@ int main(int argc, char* argv[])
 
     return 0;
 }
-
-bool is_new_quest(std::string refID) // TODO binary search
+// An iterative binary search function.
+int binarySearch(std::vector<QSyncQuest> arr, int l, int r, std::string refID)
 {
-    bool result = true;
-    for (auto quest : g_quest_list)
-    {
-        if (quest.ID == refID) { result = false; break; } // If refID is the same, it's this quest!
+    while (l <= r) {
+        int m = l + (r - l) / 2;
+
+        // Check if x is present at mid
+        if (arr[m].GetRefId() == refID)
+            return m;
+
+        // If x greater, ignore left half
+        if (arr[m].GetRefId() < refID)
+            l = m + 1;
+
+        // If x is smaller, ignore right half
+        else
+            r = m - 1;
     }
-    return result;
+
+    // If we reach here, then element was not present
+    return -1;
+}
+//bool is_new_quest(std::string refID) // TODO binary search
+//{
+//    //bool result = true;
+//    //for (auto quest : g_quest_list)
+//    //{
+//    //    if (quest.GetRefId() == refID) { result = false; break; } // If refID is the same, it's this quest!
+//    //}
+//    //return result;
+//
+//   return std::binary_search(g_quest_list.begin(), g_quest_list.end(), refID);
+//}
+bool is_new_quest(QSyncQuest quest) // TODO binary search
+{
+    //bool result = true;
+    //for (auto quest : g_quest_list)
+    //{
+    //    if (quest.GetRefId() == refID) { result = false; break; } // If refID is the same, it's this quest!
+    //}
+    //return result;
+    //bool yes = std::binary_search(g_quest_list.begin(), g_quest_list.end(), quest);
+
+    return !std::binary_search(g_quest_list.begin(), g_quest_list.end(), quest);
 }
 
-bool is_new_objective(std::string refID, std::string objectiveId) // TODO binary search
+bool is_stage_updated(std::string refID, std::string stageID) // TODO binary search
 {
-    bool result = true;
+    /*bool result = true;
     for (auto quest : g_quest_list)
     {
-        if(quest.ID == refID)
+        if(quest.GetRefId() == refID)
         {
-            for (auto stage : quest.Stages)
+            for (auto stage : quest.GetStages())
             {
-                if (stage == objectiveId) { result = false; break; }
+                if (stage.ID == objectiveId) { result = false; break; }
             }
             break;
         }
     }
-    return result;
+    return result;*/
+    int index = binarySearch(g_quest_list, 0, g_quest_list.size() - 1, refID);
+    //g_quest_list[index].GetStages();
+    if (index >= 0)
+    {
+        return atoi(g_quest_list[index].GetStageId().c_str()) < atoi(stageID.c_str());
+    }
+    return false;
 }
 // This function runs whenever a client sends a message to the server
 void Listener_MessageReceived(TCPListener* listener, int client, std::string msg)
@@ -246,60 +293,41 @@ std::map<std::string, std::string> GetConfig()
     return details;
 }
 
-quest_and_objectives* getQuest(std::string refID)
-{
-    for (auto quest : g_quest_list)
-    {
-        if (quest.ID == refID)
-        {
-            return &quest;
-        }
-    }
-    quest_and_objectives dummyQuest;
-    std::cout << "Could not find " << refID << " sending back a dummy value!";
-    return &dummyQuest;
-}
-
 serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBody, QSyncMsgBody* replyClientBody)
 {
     message_type type;
     json body = message["Body"];
-    std::string ID;
+    /*std::string ID;
     std::string Name;
-    std::string Stage = "";
+    std::string Stage = "";*/
     serverAction action = serverAction::NONE;
 
     message["Type"].get_to(type);
-    if (body.contains("ID")) { body["ID"].get_to(ID); }
-    if (body.contains("Name")) { body["Name"].get_to(Name); }
-    if (body.contains("Stage")) { body["Stage"].get_to(Stage); }
     switch (type)
     {
     case message_type::NEW_QUEST:
     {
         //std::cout << message.body << std::endl;
-        quest_and_objectives new_quest;
-        new_quest.ID = ID;
-        new_quest.Name = Name;
-        std::cout << client << ": New Quest - " << ID << " " << Name << " " << Stage << std::endl;
-        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), ID) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        //quest_and_objectives new_quest;
+        std::string questString;
+        body["Quest"].get_to(questString);
+        QSyncQuest newQuest(questString);
+
+        std::cout << client << ": New Quest - " << newQuest.GetRefId() << " " << newQuest.GetName() << " " << newQuest.GetStageId() << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), newQuest.GetRefId()) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
             // Do nothing
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
-        if (!is_new_quest(new_quest.ID))
+        if (!is_new_quest(newQuest))
         {
             std::cout << "Quest has already been received, ignoring" << std::endl;
             break;
         }
 
-        if (Stage != "")
-        {
-            new_quest.Stages.push_back(Stage);
-        }
-
-        g_quest_list.push_back(new_quest); // TODO insert in order of refID
+        g_quest_list.push_back(newQuest); // TODO insert in order of refID
+        std::sort(g_quest_list.begin(), g_quest_list.end()); // This should do the above
 
         replyAllBody->type = message_type::START_QUEST;
         replyAllBody->body = body;
@@ -307,39 +335,37 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
     break;
     case message_type::QUEST_UPDATED:
     {
-        std::cout << client << ": Quest Updated - " << ID << " " << Name << " " << Stage << std::endl;
-        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), ID) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        std::string questString;
+        body["Quest"].get_to(questString);
+        QSyncQuest quest(questString);
+
+        std::cout << client << ": Quest Updated - " << quest.GetRefId() << " " << quest.GetName() << " " << quest.GetStageId() << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest.GetRefId()) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
             // Do nothing
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
 
-        if (!is_new_objective(ID, Stage))
-        {
-            std::cout << "Already received this stage, ignoring!" << std::endl;
-            break;
-        }
-
-        if (is_new_quest(ID))
+        if (is_new_quest(quest))
         {
             std::cout << "Quest is actually new, adding!" << std::endl;
-            quest_and_objectives new_quest;
-            new_quest.ID = ID;
-            new_quest.Name = Name;
-            g_quest_list.push_back(new_quest);
+            g_quest_list.push_back(quest); // TODO insert in order of refID
+            std::sort(g_quest_list.begin(), g_quest_list.end()); // This should do the above
         }
 
-        //auto quest_ittr = g_active_quest_list.begin();
-        for (auto quest_ittr = g_quest_list.begin(); quest_ittr != g_quest_list.end(); ++quest_ittr)
+        // Update Stage list for quest
+        int index = binarySearch(g_quest_list, 0, g_quest_list.size() - 1, quest.GetRefId());
+        std::vector<stage> trueStages = quest.GetStages();
+        std::vector<stage> oldStages = g_quest_list[index].GetStages();
+        // if any stages are completed on either client or server, count it as complted
+        for (int i = 0; i > trueStages.size(); i++)
         {
-            if (quest_ittr->ID == ID)
-            {
-                // Add
-                quest_ittr->Stages.push_back(Stage);
-                break;
-            }// Else nothing
+            trueStages[i].Completed = trueStages[i].Completed || oldStages[i].Completed;
         }
+        g_quest_list[index].SetStages(trueStages);
+
+        body["Quest"] = g_quest_list[index].ToString();
 
         replyAllBody->type = message_type::UPDATE_QUEST;
         replyAllBody->body = body;
@@ -347,17 +373,20 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
     break;
     case message_type::QUEST_COMPLETED:
     {
-        std::cout << client << ": Quest Completed - " << ID << " " << Name << " " << std::endl;
-        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), ID) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        std::string questString;
+        body["Quest"].get_to(questString);
+        QSyncQuest quest(questString);
+
+        std::cout << client << ": Quest Completed - " << quest.GetRefId() << " " << quest.GetName() << " " << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest.GetRefId()) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
             // Do nothing
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
 
-        quest_and_objectives* quest = getQuest(ID);
-        quest->Active = false;
-        quest->Completed = true;
+        int index = binarySearch(g_quest_list, 0, g_quest_list.size() - 1, quest.GetRefId());
+        g_quest_list[index] = quest;
 
         replyAllBody->type = message_type::COMPLETE_QUEST;
         replyAllBody->body = body;
@@ -365,16 +394,20 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
     break;
     case message_type::QUEST_FAILED:
     {
-        std::cout << client << ": Quest Failed - " << ID << " " << Name << " " << Stage << std::endl;
-        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), ID) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        std::string questString;
+        body["Quest"].get_to(questString);
+        QSyncQuest quest(questString);
+
+        std::cout << client << ": Quest Failed - " << quest.GetRefId() << " " << quest.GetName() << " " << quest.GetStageId() << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest.GetRefId()) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
             // Do nothing
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
             break;
         }
-        quest_and_objectives* quest = getQuest(ID);
-        quest->Active = false;
-        quest->Failed = true;
+
+        int index = binarySearch(g_quest_list, 0, g_quest_list.size() - 1, quest.GetRefId());
+        g_quest_list[index] = quest;
 
         replyAllBody->type = message_type::FAIL_QUEST;
         replyAllBody->body = body;
@@ -387,14 +420,9 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
         json current_quests_info = json::array();
         for (auto quest : g_quest_list)
         {
-            if (quest.Active != true) { continue; } // Skip if inactive
-            json quest_info =
-            {
-                {"ID", quest.ID},
-                {"Stages", quest.Stages},
-                {"Name", quest.Name}
-            };
-            current_quests_info.push_back(quest_info);
+            if (quest.IsActive() == false) { continue; } // Skip if inactive
+
+            current_quests_info.push_back(quest.ToString());
         }
         std::cout << "Telling client about " << current_quests_info.size() << " new quests" << std::endl;
         //QSyncMsgB message(CURRENT_ACTIVE_QUESTS, current_quests_info.dump());
@@ -406,8 +434,12 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
 
     case message_type::QUEST_INACTIVE:
     {
-        std::cout << client << ": Quest Inactive - " << ID << " " << Name << std::endl;
-        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), ID) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
+        std::string questString;
+        body["Quest"].get_to(questString);
+        QSyncQuest quest(questString);
+
+        std::cout << client << ": Quest Inactive - " << quest.GetRefId() << " " << quest.GetName() << std::endl;
+        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), quest.GetRefId()) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
         {
             // Do nothing
             std::cout << "Quest is blacklisted, ignoring!" << std::endl;
@@ -419,18 +451,10 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
     break;
     case message_type::OBJECTIVE_COMPLETED:
     {
-        std::cout << client << ": Objective " << Stage << " completed for " << ID << std::endl;
-        if (std::find(g_questBlacklist.begin(), g_questBlacklist.end(), ID) != g_questBlacklist.end()) // Don't do anything if the quest should be ignored
-        {
-            // Do nothing
-            std::cout << "Quest is blacklisted, ignoring!" << std::endl;
-            break;
-        }
+        std::cout << client << ": Sent OBJECTIVE_COMPLETED but this is removed!";
 
-        // TODO remove quest from the active list
-
-        replyAllBody->type = message_type::COMPLETE_OBJECTIVE;
-        replyAllBody->body = body;
+        /*replyAllBody->type = message_type::COMPLETE_OBJECTIVE;
+        replyAllBody->body = body;*/
     }
     break;
     case message_type::ACTIVE_QUESTS:
@@ -439,52 +463,51 @@ serverAction process_Message(int client, json message, QSyncMsgBody* replyAllBod
         std::cout << client << ": Sent list of their current quests, will process..." << std::endl;
         json quest_list = json::array();
         body.get_to(quest_list);
-        int integer = quest_list.size();
+        /*int integer = quest_list.size();
 
         std::cout << body.is_array() << std::endl;
         std::cout << body.is_null() << std::endl;
         std::cout << body.is_string() << std::endl;
 
-        std::cout << integer << std::endl;
+        std::cout << integer << std::endl;*/
 
-        for (auto quest : quest_list)
+        for (auto questJson : quest_list)
         {
-            std::string ID;
-            std::string Name;
-            std::string Stage;
-            quest["ID"].get_to(ID);
-            quest["Name"].get_to(Name);
-            quest["Stage"].get_to(Stage);
-            quest_and_objectives new_quest;
+            std::string questString;
+            questJson["Quest"].get_to(questString);
+            QSyncQuest quest(questString);
 
-            std::cout << "Checking quest " << ID << std::endl;
-            if (is_new_quest(ID))
+            std::cout << "Checking quest " << quest.GetRefId() << std::endl;
+            if (is_new_quest(quest))
             {
-                new_quest.Name = Name;
-                new_quest.ID = ID;
-                new_quest.Stages.insert(new_quest.Stages.begin(), Stage); // Use push front because they are received in the oposite order to the pip boy
 
-                g_quest_list.push_front(new_quest);
+                g_quest_list.push_back(quest); // TODO insert in order of refID
+                std::sort(g_quest_list.begin(), g_quest_list.end()); // This should do the above
+
                 replyAllBody->type = message_type::START_QUEST;
-                replyAllBody->body = quest;
-                std::cout << "Added Quest " << Name << " and told clients about it." << std::endl;
+                replyAllBody->body = questJson;
+                std::cout << "Added Quest " << quest.GetName() << " and told clients about it." << std::endl;
             }
-            else if (is_new_objective(ID, Stage))
-            {
-                for (auto quest_ittr = g_quest_list.begin(); quest_ittr != g_quest_list.end(); ++quest_ittr)
+  
+            bool isDifferent = false;
+
+                int index = binarySearch(g_quest_list, 0, g_quest_list.size() - 1, quest.GetRefId());
+                std::vector<stage> trueStages = quest.GetStages();
+                std::vector<stage> oldStages = g_quest_list[index].GetStages();
+                // if any stages are completed on either client or server, count it as complted
+                for (int i = 0; i > trueStages.size(); i++)
                 {
-                    if (quest_ittr->ID == ID)
-                    {
-                        // Add
-                        quest_ittr->Stages.insert(quest_ittr->Stages.begin(), Stage);
-                        //quest_ittr->Stages
-                        break;
-                    }// Else nothing
+                    if (trueStages[i].Completed != oldStages[i].Completed) { isDifferent = true; }
+                    trueStages[i].Completed = trueStages[i].Completed || oldStages[i].Completed;
                 }
+                g_quest_list[index].SetStages(trueStages);
+
+                questJson["Quest"] = g_quest_list[index].ToString();
+
                 replyAllBody->type = message_type::UPDATE_QUEST;
-                replyAllBody->body = quest;
-                std::cout << "Added Stage " << Stage << " to Quest " << Name << " and told clients about it." << std::endl;
-            }
+                replyAllBody->body = questJson;
+                std::cout << "Updated Stage/s for " << quest.GetRefId() << " " << quest.GetName() << " and told clients about it." << std::endl;
+            
         }
     }
     break;
