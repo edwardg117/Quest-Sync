@@ -307,6 +307,7 @@ bool QuestManager::completedIntro()
 {
 	if (this->hasQuest("104c1c"))
 	{
+		_MESSAGE("Has intro quest");
 		cQuest AintThatAKickInTheHead = this->getcQuest("104c1c");
 		return AintThatAKickInTheHead.isComplete();
 	}
@@ -387,6 +388,7 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 
 		// Don't update objective count because that's already been done
 		//client.send_message(message_for_server.toString());
+		ObjectiveCount = questObjectiveList.Count();
 	}
 
 	//auto active_objective_iterator = ActiveObjectives.begin();
@@ -636,9 +638,9 @@ void QuestManager::process(TCPClient* client, tList<BGSQuestObjective> questObje
 					//_MESSAGE(quest_s.c_str());
 					_MESSAGE("Or here???");
 					//auto quest = json::parse(quest_s);
-					std::string questString;
-					quest["Quest"].get_to(questString);
-					QSyncQuest qQuest(questString);
+					//std::string questString;
+					//quest["Quest"].get_to(questString);
+					QSyncQuest qQuest(quest);
 					_MESSAGE("Quest parsed...");
 					
 
