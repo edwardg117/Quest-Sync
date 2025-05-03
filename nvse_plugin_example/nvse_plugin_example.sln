@@ -1,36 +1,73 @@
-
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.29025.244
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35931.197 d17.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "nvse_plugin_example", "nvse_plugin_example.vcxproj", "{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "common_vc9", "..\common\common_vc9.vcxproj", "{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Quest Sync Server", "..\Quest Sync Server\Quest Sync Server.vcxproj", "{CBA83865-EE9E-4832-866B-59E13D341CA9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug GECK|Any CPU = Debug GECK|Any CPU
 		Debug GECK|Win32 = Debug GECK|Win32
+		Debug|Any CPU = Debug|Any CPU
 		Debug|Win32 = Debug|Win32
+		Release GECK|Any CPU = Release GECK|Any CPU
 		Release GECK|Win32 = Release GECK|Win32
+		Release|Any CPU = Release|Any CPU
 		Release|Win32 = Release|Win32
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug GECK|Any CPU.ActiveCfg = Debug GECK|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug GECK|Any CPU.Build.0 = Debug GECK|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug GECK|Win32.ActiveCfg = Debug GECK|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug GECK|Win32.Build.0 = Debug GECK|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug|Any CPU.ActiveCfg = Debug|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug|Any CPU.Build.0 = Debug|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug|Win32.ActiveCfg = Debug|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Debug|Win32.Build.0 = Debug|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release GECK|Any CPU.ActiveCfg = Release GECK|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release GECK|Any CPU.Build.0 = Release GECK|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release GECK|Win32.ActiveCfg = Release GECK|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release GECK|Win32.Build.0 = Release GECK|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release|Any CPU.ActiveCfg = Release|Win32
+		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release|Any CPU.Build.0 = Release|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release|Win32.ActiveCfg = Release|Win32
 		{AE7CFEE7-4058-4E3C-ADC2-AE7480EE2028}.Release|Win32.Build.0 = Release|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug GECK|Any CPU.ActiveCfg = Debug GECK|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug GECK|Any CPU.Build.0 = Debug GECK|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug GECK|Win32.ActiveCfg = Debug GECK|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug GECK|Win32.Build.0 = Debug GECK|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug|Any CPU.ActiveCfg = Debug|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug|Any CPU.Build.0 = Debug|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug|Win32.ActiveCfg = Debug|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Debug|Win32.Build.0 = Debug|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release GECK|Any CPU.ActiveCfg = Release GECK|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release GECK|Any CPU.Build.0 = Release GECK|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release GECK|Win32.ActiveCfg = Release GECK|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release GECK|Win32.Build.0 = Release GECK|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release|Any CPU.ActiveCfg = Release|Win32
+		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release|Any CPU.Build.0 = Release|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release|Win32.ActiveCfg = Release|Win32
 		{20C6411C-596F-4B85-BE4E-8BC91F59D8A6}.Release|Win32.Build.0 = Release|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug GECK|Any CPU.ActiveCfg = Debug|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug GECK|Any CPU.Build.0 = Debug|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug GECK|Win32.ActiveCfg = Debug|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug GECK|Win32.Build.0 = Debug|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug|Any CPU.Build.0 = Debug|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug|Win32.ActiveCfg = Debug|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Debug|Win32.Build.0 = Debug|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release GECK|Any CPU.ActiveCfg = Release|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release GECK|Any CPU.Build.0 = Release|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release GECK|Win32.ActiveCfg = Release|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release GECK|Win32.Build.0 = Release|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release|Any CPU.ActiveCfg = Release|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release|Any CPU.Build.0 = Release|x64
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release|Win32.ActiveCfg = Release|Win32
+		{CBA83865-EE9E-4832-866B-59E13D341CA9}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
