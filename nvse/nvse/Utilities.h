@@ -222,6 +222,8 @@ void ShowErrorMessageBox(const char* message);
 
 const char* GetModName(TESForm* form);
 
+
+void vShowRuntimeError(Script* script, const char* fmt, va_list args);
 void ShowRuntimeError(Script* script, const char* fmt, ...);
 
 #endif
@@ -329,6 +331,9 @@ game_unique_ptr<T> MakeUnique(ConstructorArgs &&... args)
 }
 
 bool StartsWith(std::string left, std::string right);
+
+// Example: StartsWith("abc", "abcdef") -> true
+bool StartsWith(const char* pre, const char* right);
 std::string& ToLower(std::string&& data);
 std::string& StripSpace(std::string&& data);
 std::vector<std::string> SplitString(std::string s, std::string delimiter);

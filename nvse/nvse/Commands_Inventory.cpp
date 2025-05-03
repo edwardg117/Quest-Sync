@@ -1756,6 +1756,10 @@ bool Cmd_GetHotkeyItem_Execute(COMMAND_ARGS)
 					!iter.End();
 					++iter)
 				{
+					if (!iter.Get()) {
+						continue;
+					}
+
 					ExtraHotkey* xHotKey = (ExtraHotkey*)iter->GetByType(kExtraData_Hotkey);
 					if (xHotKey && xHotKey->index == hotkeyNum)
 					{
@@ -2706,17 +2710,20 @@ bool Cmd_GetPlayerCurrentAmmo_Execute(COMMAND_ARGS)
 
 bool Cmd_HasAmmoEquipped_Eval(COMMAND_ARGS_EVAL) {
 	*result = 0;
-	if (thisObj) {
-		BaseProcess* pBaseProc = static_cast<Actor*>(thisObj)->baseProcess;
-		if (const auto* pAmmoInfo = pBaseProc->GetAmmoInfo()) {
-			if (const auto* pAmmo = DYNAMIC_CAST(arg1, TESForm, TESAmmo))
-				*result = pAmmoInfo->ammo == pAmmo;
-			else if (auto* pAmmoList = DYNAMIC_CAST(arg1, TESForm, BGSListForm))
-				*result = pAmmoList->GetIndexOf(pAmmoInfo->ammo) != eListInvalid;
+	if (thisObj && thisObj->IsActor_Runtime()) {
+		auto actor = static_cast<Actor*>(thisObj);
+		if (auto pBaseProc = actor->baseProcess) {
+			if (const auto* pAmmoInfo = pBaseProc->GetAmmoInfo()) {
+				if (const auto* pAmmo = DYNAMIC_CAST(arg1, TESForm, TESAmmo))
+					*result = pAmmoInfo->ammo == pAmmo;
+				else if (auto* pAmmoList = DYNAMIC_CAST(arg1, TESForm, BGSListForm))
+					*result = pAmmoList->GetIndexOf(pAmmoInfo->ammo) != eListInvalid;
+			}
 		}
 	}
 	return true;
 }
+
 bool Cmd_HasAmmoEquipped_Execute(COMMAND_ARGS) {
 	*result = 0;
 	TESForm* ammoOrList;

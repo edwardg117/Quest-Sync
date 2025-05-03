@@ -70,26 +70,26 @@ struct PatchLocation
 static const PatchLocation kPatch_ScriptCommands_Start[] =
 	{
 		{0x005B1172, 0x00},
-		{0x005B19B1, 0x00},
-		{0x005B19CE, 0x04},
-		{0x005B19F8, 0x08},
-		{0x005BCC0A, 0x0C},
-		{0x005BCC2D, 0x00},
-		{0x005BCC50, 0x04},
-		{0x005BCC70, 0x0C},
-		{0x005BCC86, 0x0C},
-		{0x005BCCA6, 0x04},
-		{0x005BCCB8, 0x04},
-		{0x005BCCD4, 0x0C},
-		{0x005BCCE4, 0x04},
-		{0x005BCCF4, 0x00},
-		{0x005BCD13, 0x0C},
-		{0x005BCD23, 0x00},
-		{0x005BCD42, 0x04},
-		{0x005BCD54, 0x04},
-		{0x005BCD70, 0x04},
-		{0x005BCD80, 0x00},
-		{0x005BCD9F, 0x00},
+		// {0x005B19B1, 0x00}, |
+		// {0x005B19CE, 0x04}, |
+		// {0x005B19F8, 0x08}, Removed with ParseCommandToken hook
+		// {0x005BCC0A, 0x0C}, |
+		// {0x005BCC2D, 0x00}, |
+		// {0x005BCC50, 0x04}, |
+		// {0x005BCC70, 0x0C}, |
+		// {0x005BCC86, 0x0C}, |
+		// {0x005BCCA6, 0x04}, |
+		// {0x005BCCB8, 0x04}, |
+		// {0x005BCCD4, 0x0C}, |
+		// {0x005BCCE4, 0x04}, |
+		// {0x005BCCF4, 0x00}, |
+		// {0x005BCD13, 0x0C}, |
+		// {0x005BCD23, 0x00}, |
+		// {0x005BCD42, 0x04}, |
+		// {0x005BCD54, 0x04}, |
+		// {0x005BCD70, 0x04}, |
+		// {0x005BCD80, 0x00}, |
+		// {0x005BCD9F, 0x00}, Removed with Cmd_Help hook
 		{0x0068170B, 0x20},
 		{0x00681722, 0x10},
 		{0x00681752, 0x20},
@@ -305,15 +305,23 @@ bool Cmd_GetNVSEBeta_Execute(COMMAND_ARGS)
 
 bool Cmd_DumpDocs_Execute(COMMAND_ARGS)
 {
+	int showQuickList = 0;
+	UInt32 startingOpcode = kNVSEOpcodeStart;
+	int showIfConditionOnly = 0;
+	int showIfDeprecated = 0;
+
+	if (!ExtractArgs(EXTRACT_ARGS, &showQuickList, &startingOpcode, &showIfConditionOnly, &showIfDeprecated))
+		return true;
+
 	if (IsConsoleMode())
-	{
 		Console_Print("Dumping Command Docs");
-	}
-	g_scriptCommands.DumpCommandDocumentation();
+
+	g_scriptCommands.DumpCommandDocumentation(showQuickList != 0, startingOpcode,
+		showIfConditionOnly != 0, showIfDeprecated != 0);
+
 	if (IsConsoleMode())
-	{
 		Console_Print("Done Dumping Command Docs");
-	}
+
 	return true;
 }
 
@@ -348,11 +356,17 @@ static ParamInfo kTestDumpCommand_Params[] =
 DEFINE_CMD_COND(GetNVSEVersion, returns the installed version of NVSE, 0, NULL);
 DEFINE_CMD_COND(GetNVSERevision, returns the numbered revision of the installed version of NVSE, 0, NULL);
 DEFINE_CMD_COND(GetNVSEBeta, returns the numbered beta of the installed version of NVSE, 0, NULL);
-DEFINE_COMMAND(DumpDocs, , 0, 0, NULL);
+DEFINE_COMMAND(DumpDocs, , false, 4, kParams_FourOptionalInts);
 
 #define ADD_CMD(command) Add(&kCommandInfo_##command)
 #define ADD_CMD_RET(command, rtnType) Add(&kCommandInfo_##command, rtnType)
 #define REPL_CMD(command) Replace(GetByName(command)->opcode, &kCommandInfo_##command)
+
+#define ADD_CMD_VER(command, major, minor, beta) \
+	Add(&kCommandInfo_ ## command ## _ ## major ## _ ## minor ## _ ## beta, kRetnType_Default, 0, MAKE_NEW_VEGAS_VERSION(major, minor, beta));
+
+#define ADD_CMD_VER_RET(command, rtnType, major, minor, beta) \
+	Add(&kCommandInfo_ ## command ## _ ## major ## _ ## minor ## _ ## beta, rtnType, 0, MAKE_NEW_VEGAS_VERSION(major, minor, beta));
 
 CommandTable::CommandTable()
 {
@@ -412,6 +426,11 @@ void CommandTable::Init(void)
 	//_MESSAGE("script commands");
 	//g_scriptCommands.Dump();
 
+	// Remove ShowRouletteMenu command short name
+	if (const auto rouletteCmd = const_cast<CommandInfo*>(PluginAPI::GetCmdByOpcode(4693))) {
+		rouletteCmd->shortName = nullptr;
+	}
+
 	_MESSAGE("patched");
 }
 
@@ -424,7 +443,7 @@ void CommandTable::Read(CommandInfo *start, CommandInfo *end)
 		Add(start);
 }
 
-void CommandTable::Add(CommandInfo *info, CommandReturnType retnType, UInt32 parentPluginOpcodeBase)
+void CommandTable::Add(CommandInfo* info, CommandReturnType retnType, UInt32 parentPluginOpcodeBase, UInt32 version)
 {
 	UInt32 backCommandID = m_baseID + m_commands.size(); // opcode of the next command to add
 
@@ -450,9 +469,15 @@ void CommandTable::Add(CommandInfo *info, CommandReturnType retnType, UInt32 par
 	m_curID++;
 
 	CommandMetadata *metadata = &m_metadata[info->opcode];
-
 	metadata->parentPlugin = parentPluginOpcodeBase;
 	metadata->returnType = retnType;
+
+	if (version != 0) {
+		auto* parentPlugin = GetParentPlugin(info);
+		auto parentName = std::string(parentPlugin ? parentPlugin->name : "NVSE");
+		std::ranges::transform(parentName, parentName.begin(), [](unsigned char c) { return std::tolower(c); });
+		m_updateCommands[info->opcode] = std::make_tuple(parentName, version);
+	}
 }
 
 bool CommandTable::Replace(UInt32 opcodeToReplace, CommandInfo *replaceWith)
@@ -819,31 +844,172 @@ const char *StringForParamType(UInt32 paramType)
 	}
 }
 
-void CommandTable::DumpCommandDocumentation(UInt32 startWithID)
+const char* CommandReturnTypeToString(CommandReturnType in)
 {
-	_MESSAGE("NVSE Commands from: %#x", startWithID);
-
-	_MESSAGE("<br><b>Function Quick Reference</b>");
-	CommandList::iterator itEnd = m_commands.end();
-	for (CommandList::iterator iter = m_commands.begin(); iter != itEnd; ++iter)
+	switch (in)
 	{
-		if (iter->opcode >= startWithID)
+	case kRetnType_Ambiguous:
+		return "Ambiguous";
+	case kRetnType_Default:
+		return "Float";
+	case kRetnType_Form:
+		return "Form";
+	case kRetnType_String:
+		return "String";
+	case kRetnType_Array:
+		return "Array";
+	case kRetnType_ArrayIndex:
+		return "Array index";
+	default:
+		return "<unknown>";
+	}
+}
+
+void CommandTable::DumpCommandDocumentation(bool showQuickList, UInt32 startWithID, bool showIfConditionOnly, bool showIfDeprecated)
+{
+	_MESSAGE("%sCommands starting from opcode %#x:", (startWithID == kNVSEOpcodeStart ? "NVSE " : ""), startWithID);
+
+	CommandList::iterator itEnd = m_commands.end();
+	if (showQuickList)
+	{
+		_MESSAGE("<br><b>Function Quick Reference</b>");
+		for (CommandList::iterator iter = m_commands.begin(); iter != itEnd; ++iter)
 		{
-			iter->DumpFunctionDef();
+			if (!iter->longName || !iter->longName[0])
+				continue;
+			if (!showIfDeprecated && iter->IsDeprecated())
+				continue;
+			if (iter->opcode >= startWithID)
+			{
+				if (iter->execute || showIfConditionOnly) // assume it has eval function if no execute
+				{
+					iter->DumpFunctionDef(&m_metadata[iter->opcode]);
+				}
+			}
 		}
 	}
-
-	_MESSAGE("<hr><br><b>Functions In Detail</b>");
-	for (CommandList::iterator iter = m_commands.begin(); iter != itEnd; ++iter)
+	else
 	{
-		if (iter->opcode >= startWithID)
+		_MESSAGE("<hr><br><b>Functions In Detail</b>");
+		for (CommandList::iterator iter = m_commands.begin(); iter != itEnd; ++iter)
 		{
-			iter->DumpDocs();
+			if (!iter->longName || !iter->longName[0])
+				continue;
+			if (!showIfDeprecated && iter->IsDeprecated())
+				continue;
+			if (iter->opcode >= startWithID)
+			{
+				if (iter->execute || showIfConditionOnly) // assume it has eval function if no execute
+				{
+					iter->DumpDocs(&m_metadata[iter->opcode]);
+				}
+			}
 		}
 	}
 }
 
-void CommandInfo::DumpDocs() const
+bool CommandInfo::IsDeprecated() const
+{
+	auto nameStr = std::string(longName);
+
+	// Based on conventions from JIP, ShowOff and JG.
+	return (nameStr == "EmptyCommand") || nameStr.ends_with("OLD") || nameStr.ends_with("BROKEN");
+}
+
+const char* CommandInfo::GetOriginName(CommandMetadata* metadata) const
+{
+	if (metadata) {
+		if (auto* info = g_pluginManager.GetInfoFromBase(metadata->parentPlugin))
+		{
+			return info->name;
+		}
+	}
+
+	if (opcode < kNVSEOpcodeStart)
+	{
+		return "Base game";
+	}
+
+	if (opcode >= kNVSEOpcodeStart)
+	{
+		return "NVSE";
+	}
+
+	return "Unknown";
+}
+
+std::string CommandInfo::GetWikiStyleOriginName(bool originOrCategory, CommandMetadata* metadata) const
+{
+	if (opcode < kNVSEOpcodeStart)
+	{
+		return std::string("Base game (cannot guess from which version it was introduced)");
+	}
+
+	if (metadata) {
+		if (auto* info = g_pluginManager.GetInfoFromBase(metadata->parentPlugin))
+		{
+			// Basing hardcoded returned names by checking function origin category names https://geckwiki.com/index.php?title=Category:Functions_(All) ,
+			// ...and https://geckwiki.com/index.php?title=Template:Function function origins.
+			std::string pluginName = info->name;
+			if (pluginName.starts_with("JIP"))
+				return std::string("JIP");
+			if (pluginName == "SUP NVSE Plugin")
+			{
+				if (originOrCategory)
+					return std::string("SUP");
+				return pluginName;
+			}
+			if (pluginName.starts_with("kNVSE"))
+				return pluginName;
+
+			if (pluginName.ends_with(" Plugin"))
+				pluginName.erase(pluginName.length() - strlen(" Plugin"));
+
+			if (originOrCategory == true) // if Template:Function-style function origin.
+			{
+				// We just want the plugin name, without any "NVSE" or "Plugin" suffixes.
+				// kNVSE being the only exception thus far, being allowed to include "NVSE".
+				if (pluginName.ends_with("NVSE") || pluginName.ends_with("nvse"))
+					pluginName.erase(pluginName.length() - strlen("NVSE"));
+				if (pluginName.ends_with(" ")) // account for "SomePlugin NVSE" or "SomePlugin_nvse" vs "SomePluginNVSE".
+					pluginName.erase(pluginName.length() - 1);
+			}
+			else // if function category name
+			{
+				// these names are wildly more inconsistent.
+				// They usually never end in " Plugin", except for SUP, which is accounted for at the start.
+				// If they end in "NVSE", they usually have that spaced out, unless it's like ppNVSE, kNVSE, anhNVSE, etc, roughly <= 4 characters before NVSE.
+				if (pluginName.ends_with("NVSE") && !pluginName.ends_with(" NVSE")
+					&& pluginName.length() > strlen("NVSE") + 4)
+				{
+					// Space out the NVSE suffix
+					pluginName.erase(pluginName.length() - strlen("NVSE"));
+					pluginName.append(" NVSE");
+				}
+			}
+
+			return pluginName;
+		}
+	}
+
+	if (opcode >= kNVSEOpcodeStart)
+	{
+		return std::string("NVSE");
+	}
+
+	return "Unknown";
+}
+
+const char* GetReturnTypeStr(const char* funcName, CommandMetadata* metadata)
+{
+	if (StartsWith("Is", funcName) || StartsWith("GetIs", funcName))
+		return "1/0";
+	if (metadata)
+		return CommandReturnTypeToString(metadata->returnType);
+	return "Float"; // assume we have no metadata for vanilla funcs, so default to float
+}
+
+void CommandInfo::DumpDocs(CommandMetadata* metadata) const
 {
 	_MESSAGE("<p><a name=\"%s\"></a><b>%s</b> ", longName, longName);
 	_MESSAGE("<br><b>Alias:</b> %s<br><b>Parameters:</b>%d", (strlen(shortName) != 0) ? shortName : "none", numParams);
@@ -852,48 +1018,218 @@ void CommandInfo::DumpDocs() const
 		for (UInt32 i = 0; i < numParams; i++)
 		{
 			ParamInfo *param = &params[i];
-			const char *paramTypeName = StringForParamType(param->typeID);
 			if (param->isOptional != 0)
 			{
-				_MESSAGE("<br>&nbsp;&nbsp;&nbsp;<i>%s:%s</i> ", param->typeStr, paramTypeName);
+				_MESSAGE("<br>&nbsp;&nbsp;&nbsp;<i>%s</i> ", param->GetAsString(*this).c_str());
 			}
 			else
 			{
-				_MESSAGE("<br>&nbsp;&nbsp;&nbsp;%s:%s ", param->typeStr, paramTypeName);
+				_MESSAGE("<br>&nbsp;&nbsp;&nbsp;%s ", param->GetAsString(*this).c_str());
 			}
 		}
 	}
-	_MESSAGE("<br><b>Return Type:</b> FixMe<br><b>Opcode:</b> %#4x (%d)<br><b>Condition Function:</b> %s<br><b>Description:</b> %s</p>", opcode, opcode, eval ? "Yes" : "No", helpText);
+
+	_MESSAGE("<br><b>Return Type:</b> %s<br><b>Opcode:</b> %#4x (%d)<br><b>Origin:</b> %s<br><b>Condition Function:</b> %s<br><b>Requires calling reference:</b> %s<br><b>Description:</b> %s</p>",
+		GetReturnTypeStr(longName, metadata), opcode, opcode, GetOriginName(metadata),
+		eval ? "Yes" : "No", (needsParent > 0) ? "Yes" : "No", GetDescription(false).c_str());
 }
 
-void CommandInfo::DumpFunctionDef() const
+std::string CommandInfo::GetDescription(const bool forWiki) const
 {
-	_MESSAGE("<br>(FixMe) %s<a href=\"#%s\">%s</a> ", needsParent > 0 ? "reference." : "", longName, longName);
+	if (IsDeprecated())
+		return forWiki ? "Deprecated." : "|DEPRECATED|";
+	if (helpText && helpText[0])
+	{
+		// Make the text a bit prettier.
+		std::string desc = helpText;
+
+		if (!desc.ends_with('.'))
+			desc.append(".");
+
+		if (::islower(desc[0]))
+			desc[0] = ::toupper(desc[0]);
+
+		return desc;
+	}
+	if (forWiki)
+		return "[TO DOCUMENT]";
+	return "none";
+}
+
+/* Example wiki format (see https://geckwiki.com/index.php?title=Template:Function for full updated syntax):
+
+	{{Function
+	 |origin = NVSE
+	 |originVersion = 6.1.6
+	 |summary = Returns true if the specified script at any point calls the specified command.
+	 |name = HasScriptCommand
+	 |alias = ... // HasScriptCommand has no alias, so this isn't specified
+	 |returnVal = success
+	 |returnType = 0/1
+	 |referenceType = ... // HasScriptCommand has no calling ref, so this isn't specified
+	 |conditionFunc = Script   // could also be "Both", or "Condition"
+	 |consoleOnly = ... // could be y, true, or unspecified (false)
+	 |arguments =
+	  {{FunctionArgument
+	   |Name = CommandOpcode
+	   |Type = int
+	  }}{{FunctionArgument
+	   |Name = Script/Form
+	   |Type = form
+	  }}{{FunctionArgument
+	   |Name = EventID
+	   |Type = int
+	   |Optional = y
+	  }}
+	}}
+
+	[[Category:Functions (NVSE)]]
+*/
+void CommandInfo::DumpWikiDocs(const char* versionNumberStr) const
+{
+	if (!longName || !longName[0])
+		return;
+
+	// Assume it's a script command, not a console-only command.
+	CommandMetadata* metadata = &g_scriptCommands.GetMetaDataForCommand(this);
+
+	if (IsDeprecated())
+		_MESSAGE("{{Deprecated}}");
+
+	_MESSAGE("{{Function");
+	_MESSAGE(" |origin = %s", GetWikiStyleOriginName(true, metadata).c_str());
+	_MESSAGE(" |originVersion = %s", (versionNumberStr && versionNumberStr[0]) ? versionNumberStr : "[TO SPECIFY]");
+	_MESSAGE(" |summary = %s", GetDescription(true).c_str());
+	_MESSAGE(" |name = %s", longName);
+	if (shortName && shortName[0])
+		_MESSAGE(" |alias = %s", shortName);
+
+	_MESSAGE(" |returnVal = [Insert return val name here, or remove this arg]");
+	_MESSAGE(" |returnType = %s [remove this arg if func returns nothing]", GetReturnTypeStr(longName, metadata));
+
+	if (needsParent > 0)
+		_MESSAGE(" |referenceType = reference");
+
+	const char* conditionFuncStr = "None (should never happen)";
+	if (eval && !execute)
+		conditionFuncStr = "Condition";
+	else if (eval && execute)
+		conditionFuncStr = "Both";
+	else if (!eval && execute)
+		conditionFuncStr = "Script";
+	_MESSAGE(" |conditionFunc = %s", conditionFuncStr);
+
+	bool hasArrayArg = false;
+	bool hasStringArg = false;
+	if (numParams > 0)
+	{
+		_MESSAGE(" |arguments =");
+		_MESSAGE("  {{FunctionArgument");
+		for (UInt32 i = 0; i < numParams; ++i)
+		{
+			ParamInfo* param = &params[i];
+			std::string argTypeStr = param->GetArgTypeAsString(*this);
+			const char* argName = (param->typeStr && param->typeStr[0] && !StrEqual(argTypeStr.c_str(), param->typeStr))
+				? param->typeStr : "[Enter Arg Name]";
+			_MESSAGE("   |Name = %s", argName);
+			if (argTypeStr.contains("Array"))
+				hasArrayArg = true;
+			if (argTypeStr.contains("String"))
+				hasStringArg = true;
+
+			_MESSAGE("   |Type = %s", argTypeStr.c_str());
+
+			if (param->isOptional != 0)
+			{
+				_MESSAGE("   |Optional = y");
+				_MESSAGE("   |Value = [INSERT DEFAULT VALUE]");
+			}
+
+			if (i + 1 < numParams)
+				_MESSAGE("  }}{{FunctionArgument");
+			else
+				_MESSAGE("  }}");
+		}
+	}
+	_MESSAGE("}}"); // end "{{Function" template
+
+	_MESSAGE("[[Category:Functions (%s)]]", GetWikiStyleOriginName(false, metadata).c_str());
+	_MESSAGE("[[Category:? [Add other relevant categories] ]]");
+	if (IsDeprecated())
+		_MESSAGE("[[Category:Deprecated Functions]]");
+	if (parse == Cmd_Expression_Parse)
+		_MESSAGE("[[Category:NVSE-Aware Functions]]");
+
+	if (hasArrayArg || (metadata && (metadata->returnType == CommandReturnType::kRetnType_Array
+			|| metadata->returnType == CommandReturnType::kRetnType_ArrayIndex)))
+	{
+			_MESSAGE("[[Category:Array Functions]]");
+	}
+	if (hasStringArg || (metadata && metadata->returnType == CommandReturnType::kRetnType_String))
+	{
+		_MESSAGE("[[Category:String Functions]]");
+	}
+	_MESSAGE(""); // line break
+
+	if (shortName && shortName[0])
+	{
+		_MESSAGE("!!! Create a page with the name \"%s\" and the following text:", shortName);
+		_MESSAGE("#redirect [[%s]]\n[[Category:Function Alias]]\n", longName);
+	}
+}
+
+void CommandInfo::DumpFunctionDef(CommandMetadata* metadata) const
+{
+	_MESSAGE("<br>(%s) %s<a href=\"#%s\">%s</a> ", GetReturnTypeStr(longName, metadata),
+		needsParent > 0 ? "reference." : "", longName, longName);
 	if (numParams > 0)
 	{
 		for (UInt32 i = 0; i < numParams; i++)
 		{
 			ParamInfo *param = &params[i];
-			const char *paramTypeName = StringForParamType(param->typeID);
 			if (param->isOptional != 0)
 			{
-				_MESSAGE("<i>%s:%s</i> ", param->typeStr, paramTypeName);
+				_MESSAGE("<i>%s</i> ", param->GetAsString(*this).c_str());
 			}
 			else
 			{
-				_MESSAGE("%s:%s ", param->typeStr, paramTypeName);
+				_MESSAGE("%s ", param->GetAsString(*this).c_str());
 			}
 		}
 	}
 }
 
-CommandInfo *CommandTable::GetByName(const char *name)
+CommandInfo *CommandTable::GetByName(const char* name, std::unordered_map<std::string, UInt32> *pluginVersions)
 {
-	for (CommandList::iterator iter = m_commands.begin(); iter != m_commands.end(); ++iter)
-		if (!StrCompare(name, iter->longName) || (iter->shortName && !StrCompare(name, iter->shortName)))
-			return &(*iter);
+	for (CommandList::reverse_iterator iter = m_commands.rbegin(); iter != m_commands.rend(); ++iter) {
+		if (!StrCompare(name, iter->longName) || (iter->shortName && !StrCompare(name, iter->shortName))) {
+			auto *cmd = &(*iter);
 
-	return NULL;
+			// Versioned command, only return if script specifies a plugin version and specified version <= plugin version
+			if (auto updateInfo = m_updateCommands.find(cmd->opcode); updateInfo != m_updateCommands.end()) {
+				auto cmdPluginName = std::string(std::get<0>(updateInfo->second));
+				auto cmdVersion = std::get<1>(updateInfo->second);
+
+				std::ranges::transform(cmdPluginName, cmdPluginName.begin(), [](unsigned char c) { return std::tolower(c); });
+
+				if (pluginVersions->contains(cmdPluginName)) {
+					if (cmdVersion <= (*pluginVersions)[cmdPluginName]) {
+						return cmd;
+					}
+				}
+				else {
+					return cmd;
+				}
+			}
+
+			// Not a versioned command
+			else {
+				return cmd;
+			}
+		}
+	}
+
+	return nullptr;
 }
 
 CommandInfo *CommandTable::GetByOpcode(UInt32 opcode)
@@ -911,7 +1247,42 @@ CommandInfo *CommandTable::GetByOpcode(UInt32 opcode)
 		//	opcode, baseOpcode, arrayIndex, command->opcode);
 		return nullptr;
 	}
+
 	return command;
+}
+
+std::tuple<std::string, UInt32>* CommandTable::GetUpdateInfoForOpCode(UInt32 opcode) {
+	if (m_updateCommands.contains(opcode)) {
+		return &m_updateCommands[opcode];
+	}
+
+	return nullptr;
+}
+
+std::vector<CommandInfo*> CommandTable::GetByOpcodeRange(UInt32 opcodeStart, UInt32 opcodeStop)
+{
+	std::vector<CommandInfo*> result;
+	const auto baseOpcode = m_commands.begin()->opcode;
+	const auto lastArrayIndex = opcodeStop - baseOpcode;
+	if (lastArrayIndex >= m_commands.size())
+		return result;
+	if (opcodeStart > opcodeStop)
+		return result;
+	auto numElems = opcodeStop - opcodeStart + 1;
+	if ((m_commands.size() < numElems) || m_commands.begin()->opcode < baseOpcode)
+		return result;
+	for (UInt32 i = opcodeStart - baseOpcode; i <= lastArrayIndex; ++i)
+	{
+		auto* const command = &m_commands[i];
+		if (command->opcode < opcodeStart || command->opcode > opcodeStop)
+		{
+			//_MESSAGE("ERROR: mismatched command opcodes when executing CommandTable::GetByOpcode (opcode: %X base: %X index: %d index opcode: %X)",
+			//	opcode, baseOpcode, arrayIndex, command->opcode);
+			continue;
+		}
+		result.push_back(command);
+	}
+	return result;
 }
 
 CommandReturnType CommandTable::GetReturnType(const CommandInfo *cmd)
@@ -998,6 +1369,11 @@ PluginInfo *CommandTable::GetParentPlugin(const CommandInfo *cmd)
 	return NULL;
 }
 
+CommandMetadata& CommandTable::GetMetaDataForCommand(const CommandInfo* cmd)
+{
+	return m_metadata[cmd->opcode];
+}
+
 void ImportConsoleCommand(const char *name)
 {
 	CommandInfo *info = g_consoleCommands.GetByName(name);
@@ -1064,8 +1440,6 @@ void CommandTable::AddDebugCommands()
 	ADD_CMD(tcmd);
 	ADD_CMD(tcmd2);
 	ADD_CMD(tcmd3);
-
-	ADD_CMD(DumpDocs);
 }
 
 void CommandTable::AddCommandsV1()
@@ -1823,7 +2197,7 @@ void CommandTable::AddCommandsV6()
 
 	// 6.2 beta 05
 	ADD_CMD(ForEachInList);
-	ADD_CMD_RET(Ternary, kRetnType_Ambiguous);
+	ADD_CMD_RET(TernaryUDF, kRetnType_Ambiguous);
 	ADD_CMD(ModUIFloat);
 	ADD_CMD(GetQuestObjectiveCount);
 	ADD_CMD(GetNthQuestObjective);
@@ -1888,6 +2262,25 @@ void CommandTable::AddCommandsV6()
 
 	// 6.3 beta 04
 	ADD_CMD_RET(GetSelfAlt, kRetnType_Form);
+
+	// 6.3 beta 06
+	ADD_CMD(DumpDocs);	// used to be debug mode only, but that forced seeing debug functions in the dumped docs.
+	ADD_CMD(DumpCommandWikiDoc);
+	ADD_CMD(DumpCommandWikiDocs);
+	ADD_CMD(SetModelPath);
+	ADD_CMD_RET(Ternary, kRetnType_Ambiguous);
+	ADD_CMD(MatchesAnyOf);
+
+	ADD_CMD(ForEachAlt);
+	ADD_CMD(ar_Exists);
+	ADD_CMD(ar_Count);
+	ADD_CMD(ar_CountWhere);
+	ADD_CMD(EvaluateInventory);
+	ADD_CMD(ar_GetNth);
+	ADD_CMD(PluginVersion);
+	ADD_CMD_RET(GetDoorSound, kRetnType_Form);
+
+	ADD_CMD(FireChallenge);
 }
 
 namespace PluginAPI
@@ -1900,4 +2293,26 @@ namespace PluginAPI
 	UInt32 GetReqVersion(const CommandInfo *cmd) { return g_scriptCommands.GetRequiredNVSEVersion(cmd); }
 	const PluginInfo *GetCmdParentPlugin(const CommandInfo *cmd) { return g_scriptCommands.GetParentPlugin(cmd); }
 	const PluginInfo *GetPluginInfoByName(const char *pluginName) { return g_pluginManager.GetInfoByName(pluginName); }
+}
+
+std::string ParamInfo::GetAsString(const CommandInfo& info) const
+{
+	const char* paramTypeStr = GetArgTypeAsString(info);
+	if (typeStr && typeStr[0])
+	{
+		return std::string(typeStr) + std::string(":") + paramTypeStr;
+	}
+	return std::string(paramTypeStr);
+}
+
+const char* ParamInfo::GetArgTypeAsString(const CommandInfo& info) const
+{
+	if (info.parse == Cmd_Expression_Parse)
+	{
+		return StringForNVSEParamType(static_cast<NVSEParamType>(typeID));
+	}
+	else
+	{
+		return StringForParamType(typeID);
+	}
 }

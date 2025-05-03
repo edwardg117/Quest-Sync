@@ -56,7 +56,6 @@ bool IsConsoleMode();
 
 bool GetConsoleEcho();
 void SetConsoleEcho(bool doEcho);
-const char *GetFullName(TESForm *baseForm);
 const char *GetActorValueString(UInt32 actorValue); // should work now
 UInt32 GetActorValueForString(const char *strActorVal);
 
@@ -115,6 +114,31 @@ extern const _ShowCompilerError ShowCompilerError;
 bool DefaultCommandParseHook(UInt16 numParams, ParamInfo *paramInfo, ScriptLineBuffer *lineBuffer, ScriptBuffer *scriptBuffer);
 
 #endif
+
+extern std::map<uint8_t, const char*> g_formTypeNames;
+
+// extern const char** g_formTypeNames;
+
+extern const char** g_alignmentTypeNames;
+extern const char** g_equipTypeNames;
+extern const char** g_criticalStageNames;
+
+struct AnimGroupInfo
+{
+	const char* name;	 // 00
+	UInt32 unk04;		 // 04
+	UInt32 sequenceType; // 08
+	UInt32 unk0C;		 // 0C
+	UInt32 unk10;		 // 10
+	UInt32 unk14[4];	 // 14
+};
+
+extern AnimGroupInfo* g_animGroupInfos;
+
+extern bool (*IsStringInteger)(const char* str);
+extern bool (*IsStringFloat)(const char* str);
+
+extern const bool kInventoryType[];
 
 typedef TESForm *(__cdecl *_GetFormByID)(const char *editorID);
 extern const _GetFormByID GetFormByID;
@@ -1096,4 +1120,35 @@ enum ExtractParamType
 	kExtractParam_Double = 5,
 	kExtractParam_Form = 6,
 	kExtractParam_ScriptVariable = 7,
+};
+
+// 48
+typedef tList<void*>	VATSTargetList;
+struct VATSCameraData {
+	VATSTargetList* targets;
+	UInt32				unk004;
+	UInt32				mode;
+	// ...
+
+	// Credits to lStewieAl
+	enum Mode : UInt32
+	{
+		kVATSMode_None = 0x0,
+		kVATSMode_TargetSelect = 0x1,
+		kVATSMode_LimbSelectOrZoom = 0x2,
+		kVATSMode_3 = 0x3,
+		kVATSMode_Playback = 0x4,
+	};
+
+	void Unclick();
+
+	static void Accept()
+	{
+		StdCall(0x705780);
+	}
+
+	static VATSCameraData* GetSingleton()
+	{
+		return reinterpret_cast<VATSCameraData*>(0x11F2250);
+	}
 };

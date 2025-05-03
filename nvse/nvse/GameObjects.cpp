@@ -63,7 +63,7 @@ QuestObjectiveTargets* PlayerCharacter::GetCurrentQuestObjectiveTargets()
 
 TESContainer* TESObjectREFR::GetContainer()
 {
-	if (IsActor())
+	if (IsActor_Runtime())
 		return &((TESActorBase*)baseForm)->container;
 	if (baseForm->typeID == kFormType_TESObjectCONT)
 		return &((TESObjectCONT*)baseForm)->container;
@@ -194,18 +194,17 @@ TESObjectREFR* TESObjectREFR::Create(bool bTemp)
 
 TESForm* GetPermanentBaseForm(TESObjectREFR* thisObj)	// For LevelledForm, find real baseForm, not temporary one.
 {
-	ExtraLeveledCreature * pXCreatureData = NULL;
-
-	if (thisObj) {
-		pXCreatureData = GetByTypeCast(thisObj->extraDataList, LeveledCreature);
-		if (pXCreatureData && pXCreatureData->baseForm) {
+	if (!thisObj)
+		return nullptr;
+	TESForm *baseForm = thisObj->baseForm;
+	if (baseForm && (baseForm->GetModIndex() == 0xFF))
+	{
+		if (BGSPlaceableWater *plcWater = DYNAMIC_CAST(baseForm, TESForm, BGSPlaceableWater))
+			return plcWater->water;
+		if (ExtraLeveledCreature *pXCreatureData = GetByTypeCast(thisObj->extraDataList, LeveledCreature); pXCreatureData && pXCreatureData->baseForm)
 			return pXCreatureData->baseForm;
-		}
 	}
-	if (thisObj && thisObj->baseForm) {
-		return thisObj->baseForm;
-	}
-	return NULL;
+	return baseForm;
 }
 
 // Taken from JIP LN NVSE.
@@ -285,6 +284,16 @@ TESObjectWEAP* Actor::GetEquippedWeapon() const
 		if (weaponInfo) return (TESObjectWEAP*)weaponInfo->type;
 	}
 	return NULL;
+}
+
+void Actor::AimWeapon(bool shouldAim, bool hasQueuedIdleFlags10000)
+{
+	ThisStdCall(0x8BB650, this, static_cast<UInt8>(shouldAim), hasQueuedIdleFlags10000, static_cast<UInt8>(false));
+}
+
+bool Actor::SetBlocking(bool shouldBlock)
+{
+	return ThisStdCall<bool>(0x894CC0, this, static_cast<UInt8>(shouldBlock));
 }
 
 bool TESObjectREFR::GetInventoryItems(InventoryItemsMap &invItems)
@@ -390,34 +399,6 @@ __declspec(naked) bool __fastcall TESObjectREFR::GetInSameCellOrWorld(TESObjectR
 	}
 }
 
-__declspec(naked) float __vectorcall Point3Distance(const NiVector3& pt1, const NiVector3& pt2)
-{
-	__asm
-	{
-		movups	xmm0, [ecx]
-		movups	xmm1, [edx]
-		subps	xmm0, xmm1
-		andps	xmm0, PS_XYZ0Mask
-		mulps	xmm0, xmm0
-		xorps	xmm1, xmm1
-		haddps	xmm0, xmm1
-		haddps	xmm0, xmm1
-		comiss	xmm0, xmm1
-		jz		done
-		movq	xmm1, xmm0
-		rsqrtss	xmm2, xmm0
-		mulss	xmm1, xmm2
-		mulss	xmm1, xmm2
-		movss	xmm3, SS_3
-		subss	xmm3, xmm1
-		mulss	xmm3, xmm2
-		mulss	xmm3, PS_V3_Half
-		mulss	xmm0, xmm3
-		done :
-		retn
-	}
-}
-
 // Code by JIP
 __declspec(naked) float __vectorcall TESObjectREFR::GetDistance(TESObjectREFR* target) const
 {
@@ -443,6 +424,11 @@ __declspec(naked) float __vectorcall TESObjectREFR::GetDistance(TESObjectREFR* t
 void Actor::SetWantsWeaponOut(bool wantsWeaponOut)
 {
 	ThisStdCall(0x8A6840, this, (UInt8)wantsWeaponOut);
+}
+
+bool Actor::IsWeaponOut()
+{
+	return baseProcess && baseProcess->IsWeaponOut();
 }
 
 void PlayerCharacter::UpdateCamera(bool isCalledFromFunc21, bool _zero_skipUpdateLOD)

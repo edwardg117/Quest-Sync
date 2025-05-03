@@ -348,6 +348,13 @@ namespace DisablePlayerControlsAlt
 			// force out of sneak by removing sneak movement flag
 			ThisStdCall(0x9EA3E0, PlayerCharacter::GetSingleton()->actorMover, (player->GetMovementFlags() & ~0x400));
 		}
+
+		if ((realFlagChanges & kFlag_AimingOrBlocking) != 0)
+		{
+			// force out of aiming/blocking
+			player->AimWeapon(false);
+			player->SetBlocking(false);
+		}
 	}
 
 	void ApplyImmediateEnablingEffects(flags_t changedFlagsForMod)
@@ -386,14 +393,72 @@ namespace DisablePlayerControlsAlt
 		}
 	}
 
-	CallDetour g_PreventAttackDetour;
-	bool __fastcall MaybePreventPlayerAttacking(Actor* player, void* edx, UInt32 animGroupId)
+	namespace MaybePreventPlayerAttacking
 	{
-		if ((g_disabledControls & kFlag_Attacking) != 0)
-			return false;
+		namespace PreventFiring
+		{
+			CallDetour g_PreventAttackDetour;
 
-		// actually fire the weapon
-		return ThisStdCall<bool>(g_PreventAttackDetour.GetOverwrittenAddr(), player, animGroupId);
+			bool __fastcall Hook(Actor* player, void* edx, UInt32 animGroupId)
+			{
+				if ((g_disabledControls & kFlag_Attacking) != 0)
+					return false;
+
+				// actually fire the weapon
+				return ThisStdCall<bool>(g_PreventAttackDetour.GetOverwrittenAddr(), player, animGroupId);
+			}
+
+			void WriteHook()
+			{
+				g_PreventAttackDetour.WriteRelCall(0x949CF1, (UInt32)Hook);
+			}
+		}
+
+		// Fixes bug where automatic weapons when attacks are prevented would set the ForceFireWeapon flag, at 0x948F45.
+		// We do this by essentially pretending g_bPreventNextAttack is set to 1 for checks at 0x948A18 and 0x9491BC, thereby skipping to 0x949676.
+		// We don't want to actually modify it, since that might mess things up if quickly switching from having attacks disabled to enabled.
+		namespace PreventRememberingAttackInputs
+		{
+			bool __fastcall ShouldPrevent()
+			{
+				// Don't swallow inputs if player wants to try to get their weapon out via attack control.
+				if (!PlayerCharacter::GetSingleton()->IsWeaponOut())
+					return false;
+
+				return (g_disabledControls & kFlag_Attacking) != 0;
+			}
+
+			__HOOK Hook()
+			{
+				static const UInt32 NormalRetnAddr = 0x948A02,
+					PreventAddr = 0x949676;
+				_asm
+				{
+					call	ShouldPrevent
+					test	al, al
+					jz		DoRegular
+					// else, prevent
+					jmp		PreventAddr
+				DoRegular:
+					// recreate code we overwrote
+					push	1
+					push	4
+					mov     ecx, [ebp - 0xC]
+					jmp		NormalRetnAddr
+				}
+			}
+
+			void WriteHook()
+			{
+				WriteRelJump(0x9489FB, (UInt32)Hook);
+			}
+		}
+
+		void WriteHooks()
+		{
+			PreventFiring::WriteHook();
+			PreventRememberingAttackInputs::WriteHook();
+		}
 	}
 
 	CallDetour g_PreventVATSDetour;
@@ -444,7 +509,7 @@ namespace DisablePlayerControlsAlt
 			AND		eax, kFlag_Running
 			test	eax, eax
 			jz		DoRegular
-			// prevent activation
+			// else, prevent
 			jmp		PreventRunningAddr
 		DoRegular :
 			// go back to the code we jumped from and slightly overwrote
@@ -467,10 +532,175 @@ namespace DisablePlayerControlsAlt
 		return result;
 	}
 
+	namespace MaybePreventSleepWait
+	{
+		namespace WaitMenuControlPress
+		{
+			CallDetour g_detour;
+			UInt8 __fastcall GetPCControlFlags_Hook(PlayerCharacter* player)
+			{
+				auto result = ThisStdCall<UInt8>(g_detour.GetOverwrittenAddr(), player);
+				if ((g_disabledControls & kFlag_Wait) != 0)
+					return 1; // prevent waiting
+				return result;
+			}
+
+			void WriteHook()
+			{
+				g_detour.WriteRelCall(0x94239C, (UInt32)GetPCControlFlags_Hook);
+			}
+		}
+
+		namespace Cmd_ShowSleepWaitMenu
+		{
+			CallDetour g_detour;
+			void __fastcall CheckPreconditions_Hook(PlayerCharacter* player)
+			{
+				// NOTE: this trick only works if we aren't being called as a detour ourselves!
+				// Have to resort to this hack because isSleep isn't passed to the func (it should've been).
+				// (The behavior for isSleep not being passed is fixed by ShowOff; it stores isSleep in a global)
+				auto* ebp = GetParentBasePtr(_AddressOfReturnAddress());
+				auto isSleep = *reinterpret_cast<UInt32*>(ebp - 0x8);
+
+				if (isSleep && (g_disabledControls & kFlag_Sleep) != 0)
+					return; // avoid potentially showing one of the game's precondition fail messages.
+				if (!isSleep && (g_disabledControls & kFlag_Wait) != 0)
+					return;
+
+				ThisStdCall(g_detour.GetOverwrittenAddr(), player);
+			}
+
+			void WriteHook()
+			{
+				g_detour.WriteRelCall(0x5E00E0, (UInt32)CheckPreconditions_Hook);
+			}
+		}
+
+		namespace SleepFromFurniture
+		{
+			__HOOK MaybePreventSleeping()
+			{
+				static const UInt32 NormalRetnAddr = 0x509667,
+					PreventSleepingAddr = 0x509880;
+				_asm
+				{
+					movzx	eax, g_disabledControls
+					AND		eax, kFlag_Sleep
+					test	eax, eax
+					jz		DoRegular
+					// else, prevent
+					xor		al, al  // set result to 0
+					jmp		PreventSleepingAddr
+				DoRegular :
+					// go back to the code we jumped from and slightly overwrote
+					mov     [ebp - 0x19], 0
+					mov		ecx, [ebp + 0x8]
+					jmp		NormalRetnAddr
+				}
+			}
+
+			void WriteHook()
+			{
+				WriteRelJump(0x509660, (UInt32)MaybePreventSleeping);
+			}
+		}
+
+#if 0
+		CallDetour g_detour;
+		void* __cdecl Hook()
+		{
+			// NOTE: this trick only works if we aren't being called as a detour ourselves!
+			auto* _ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+			auto const returnAddr = *reinterpret_cast<UInt32*>(_ebp + 0x4);
+			if (returnAddr != 0x5E00F7) // If it's not Cmd_ShowSleepWaitMenu attempting to open the menu by bypassing preconditions...
+			{
+				auto const isSleep = *reinterpret_cast<UInt8*>(_ebp + 0x8);
+				if (isSleep && (g_disabledControls & kFlag_Sleep) != 0)
+					return nullptr;
+				if (!isSleep && (g_disabledControls & kFlag_Wait) != 0)
+					return nullptr;
+			}
+			// otherwise, we allow the menu to be created
+			return CdeclCall<void*>(g_detour.GetOverwrittenAddr());
+		}
+#endif
+
+		void WriteHooks()
+		{
+			// We use multiple hooks to prevent the game's normal precondition fail messages from being displayed.
+			// This will make it easier for modders to add their own failure messages without worrying about multiple warnings.
+			WaitMenuControlPress::WriteHook();
+			Cmd_ShowSleepWaitMenu::WriteHook();
+			SleepFromFurniture::WriteHook();
+		}
+	}
+
+	namespace MaybePreventFastTravel
+	{
+		__HOOK Hook()
+		{
+			static const UInt32 NormalRetnAddr = 0x798026,
+				PreventAddr = 0x798348;
+			_asm
+			{
+				movzx	eax, g_disabledControls
+				AND		eax, kFlag_FastTravel
+				test	eax, eax
+				jz		DoRegular
+				// else, prevent
+				jmp		PreventAddr
+			DoRegular :
+				// go back to the code we jumped from and slightly overwrote
+				//mov		ecx, [g_thePlayer]	// xNVSE's g_thePlayer is a PlayerCharacter**, so we need to dereference.
+				// For some reason the above code doesn't work, so we have to split it to two instructions.
+				mov		ecx, g_thePlayer
+				mov		ecx, [ecx]
+				jmp		NormalRetnAddr
+			}
+		}
+
+		void WriteHook()
+		{
+			// Reason we don't simply use a detour at 0x798026 is to prevent messages from playing if control is disabled, 
+			// ...even from other plugins.
+			// This will make it easier for modders to add their own failure messages without worrying about multiple warnings.
+			WriteRelJump(0x798020, (UInt32)Hook);
+		}
+	}
+
+	namespace MaybePreventReload
+	{
+		static UInt32 g_detourAddr{};
+
+		// Credits to lStewieAl for the decoding.
+		bool __fastcall PlayerCharacter_Reload_Hook(PlayerCharacter* player, void* edx, TESObjectWEAP* weap,
+			int animType, UInt8 hasExtendedClip, UInt8 isInstantSwapHotkey)
+		{
+			// Only prevent reloading outside of VATS playback.
+			if (auto* vatsCam = VATSCameraData::GetSingleton();
+				!vatsCam || vatsCam->mode != VATSCameraData::kVATSMode_Playback)
+			{
+				// Needs to be checked since we don't want to prevent "reload" that happens when equipping a weapon that still has ammo loaded.
+				bool const willPlayReloadAnim = animType == 1 || animType == 2;
+
+				if (willPlayReloadAnim && (g_disabledControls & kFlag_Reload) != 0)
+					return false; // prevent reloading
+			}
+
+			return ThisStdCall<bool>(g_detourAddr, player, weap, animType, hasExtendedClip, isInstantSwapHotkey);
+		}
+
+		void WriteHook()
+		{
+			// Detour PlayerCharacter__Reload_
+			g_detourAddr = DetourVtable(0x108AE28, (UInt32)PlayerCharacter_Reload_Hook);
+		}
+	}
+
 	void WriteHooks()
 	{
 		WriteRelJump(0x5A03F7, (UInt32)ModifyPlayerControlFlags);
-		g_PreventAttackDetour.WriteRelCall(0x949CF1, (UInt32)MaybePreventPlayerAttacking);
+		MaybePreventPlayerAttacking::WriteHooks();
 
 		// Use detour since "GetControlState" funcs could be popular hook spots
 		g_PreventVATSDetour.WriteRelCall(0x942884, (UInt32)GetControlState_VATSHook);
@@ -483,9 +713,19 @@ namespace DisablePlayerControlsAlt
 		// hooks Actor::GetMovementSpeed() call
 		g_PreventRunningForNonController.WriteRelCall(0x941B60, (UInt32)MaybePreventRunningForNonController);
 
+		MaybePreventSleepWait::WriteHooks();
+		MaybePreventFastTravel::WriteHook();
+
+		// v6.3.6
+		MaybePreventReload::WriteHook();
+
 		// todo: maybe add hook+flag to disable grabbing @ 0x95F6DE
 		// todo: maybe add hook+flag to disable AmmoSwap at 0x94098B
 	}
+}
+
+void WriteDelayedHooks() {
+	EventManager::WriteDelayedEventHooks();
 }
 
 // boolean, used by ExtraDataList::IsExtraDefaultForContainer() to determine if ExtraOwnership should be treated
@@ -575,6 +815,28 @@ static void HandleMainLoopHook(void)
 #endif
 #endif
 		g_mainThreadID = GetCurrentThreadId();
+
+#if RUNTIME
+		WriteDelayedHooks();
+
+		for (auto message : PluginManager::GetLoadErrors()) {
+			// Don't display a message for incompatible plugins?
+			if (message.find("reported as incompatible") != std::string::npos) {
+				continue;
+			}
+
+			const char* b[10] = { nullptr };
+			b[0] = "Ok";
+
+			*ShowMessageBox_pScriptRefID = (*g_thePlayer)->refID;
+
+			*ShowMessageBox_button = 0xFF;	// overwrite any previously pressed button
+			ShowMessageBox(message.c_str(),
+				0, 0, ShowMessageBox_Callback, 0, 0x17, 0, 0,
+				b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], NULL);
+
+		}
+#endif
 		
 		PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_DeferredInit, NULL, 0, NULL);
 
@@ -586,8 +848,10 @@ static void HandleMainLoopHook(void)
 	PluginManager::Dispatch_Message(0, NVSEMessagingInterface::kMessage_MainGameLoop, nullptr, 0, nullptr);
 
 	// if any temporary references to inventory objects exist, clean them up
-	if (!s_invRefMap.Empty())
+	if (!s_invRefMap.Empty()) {
+		ScopedLock lock(s_invRefMapCS);
 		s_invRefMap.Clear();
+	}
 
 	// Tick event manager
 	EventManager::Tick();

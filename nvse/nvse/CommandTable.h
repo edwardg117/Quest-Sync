@@ -106,11 +106,18 @@ enum CommandReturnType : UInt8
 	kRetnType_Max
 };
 
+const char* CommandReturnTypeToString(CommandReturnType in);
+
+struct CommandInfo;
+
 struct ParamInfo
 {
-	const char	* typeStr;
+	const char	* typeStr;	// can also be used to name the arg
 	UInt32		typeID;		// ParamType
 	UInt32		isOptional;	// do other bits do things?
+
+	std::string GetAsString(const CommandInfo& info) const;
+	const char* GetArgTypeAsString(const CommandInfo& info) const;
 };
 
 #define USE_EXTRACT_ARGS_EX NVSE_CORE
@@ -146,6 +153,22 @@ struct ParamInfo
 	0 \
 	};
 
+#define DEFINE_CMD_FULL_VER(name, altName, description, refRequired, numParams, paramInfo, parser, major, minor, beta) \
+	extern bool Cmd_ ## name ## _ ## major ## _ ## minor ## _ ## beta ## _Execute(COMMAND_ARGS); \
+	static CommandInfo (kCommandInfo_ ## name ## _ ## major ## _ ## minor ## _ ## beta) = { \
+	#name, \
+	#altName, \
+	0, \
+	#description, \
+	refRequired, \
+	numParams, \
+	paramInfo, \
+	HANDLER(Cmd_ ## name ## _ ## major ## _ ## minor ## _ ## beta ## _Execute), \
+	parser, \
+	NULL, \
+	0 \
+	};
+
 // Deprecated, use DEFINE_CMD_ALIAS instead.
 #define DEFINE_CMD_ALT(name, altName, description, refRequired, numParams, paramInfo) \
 	DEFINE_CMD_FULL(name, altName, description, refRequired, numParams, paramInfo, Cmd_Default_Parse)	
@@ -165,6 +188,9 @@ struct ParamInfo
 
 #define DEFINE_COMMAND_EXP(name, description, refRequired, paramInfo) \
 	DEFINE_CMD_ALT_EXP(name, , description, refRequired, paramInfo)
+
+#define DEFINE_CMD_VER_EXP(name, description, refRequired, paramInfo, major, minor, beta) \
+	DEFINE_CMD_FULL_VER(name, , description, refRequired, (paramInfo) ? (sizeof(paramInfo) / sizeof(ParamInfo)) : 0, paramInfo, Cmd_Expression_Parse, major, minor, beta)
 
 #define DEFINE_COMMAND_PLUGIN(name, description, refRequired, paramInfo) \
 	DEFINE_CMD_FULL(name, , description, refRequired, (paramInfo) ? (sizeof(paramInfo) / sizeof(ParamInfo)) : 0, paramInfo, NULL)
@@ -227,6 +253,17 @@ bool Cmd_Default_Eval(COMMAND_ARGS_EVAL);
 #define HANDLER_EVAL(x)	Cmd_Default_Eval
 #endif
 
+const UInt32 kNVSEOpcodeStart = 0x1400;
+const UInt32 kNVSEOpcodeTest = 0x2000;
+
+struct CommandMetadata
+{
+	CommandMetadata() :parentPlugin(kNVSEOpcodeStart), returnType(kRetnType_Default) { }
+
+	UInt32				parentPlugin;
+	CommandReturnType	returnType;
+};
+
 struct CommandInfo
 {
 	const char	* longName;		// 00
@@ -244,19 +281,19 @@ struct CommandInfo
 
 	UInt32		flags;			// 24		might be more than one field (reference to 25 as a byte)
 
-	void	DumpFunctionDef() const;
-	void	DumpDocs() const;
-};
+	bool	IsDeprecated() const;
+	const char* GetOriginName(CommandMetadata* metadata = nullptr) const;
 
-const UInt32 kNVSEOpcodeStart	= 0x1400;
-const UInt32 kNVSEOpcodeTest	= 0x2000;
+	// Wiki has different styles of using the origin name, hence "originOrCategory" arg.
+	// For example, for Function template, origin can look like: "JohnnyGuitar".
+	// For function categories, it can look like: "Functions (JohnnyGuitar NVSE)".
+	// Plus some inconsistencies, so it'll have to be hardcoded for certain plugins for convenience.
+	std::string GetWikiStyleOriginName(bool originOrCategory, CommandMetadata* metadata = nullptr) const;
 
-struct CommandMetadata
-{
-	CommandMetadata() :parentPlugin(kNVSEOpcodeStart), returnType(kRetnType_Default) { }
-
-	UInt32				parentPlugin;
-	CommandReturnType	returnType;
+	void	DumpFunctionDef(CommandMetadata* metadata = nullptr) const;
+	void	DumpDocs(CommandMetadata* metadata = nullptr) const;
+	void	DumpWikiDocs(const char* versionNumberStr = nullptr) const;
+	std::string GetDescription(const bool forWiki) const;
 };
 
 class CommandTable
@@ -268,14 +305,19 @@ public:
 	static void	Init(void);
 
 	void	Read(CommandInfo * start, CommandInfo * end);
-	void	Add(CommandInfo * info, CommandReturnType retnType = kRetnType_Default, UInt32 parentPluginOpcodeBase = 0);
+	void	Add(CommandInfo * info, CommandReturnType retnType = kRetnType_Default, UInt32 parentPluginOpcodeBase = 0, UInt32 version = 0);
 	void	PadTo(UInt32 id, CommandInfo * info = NULL);
 	bool	Replace(UInt32 opcodeToReplace, CommandInfo* replaceWith);
 
 	CommandInfo *	GetStart(void)	{ return &m_commands[0]; }
 	CommandInfo *	GetEnd(void)	{ return GetStart() + m_commands.size(); }
-	CommandInfo *	GetByName(const char * name);
+
+	CommandInfo *	GetByName(const char * name, std::unordered_map<std::string, UInt32> *pluginVersions = nullptr);
 	CommandInfo *	GetByOpcode(UInt32 opcode);
+	std::tuple<std::string, UInt32> *GetUpdateInfoForOpCode(UInt32 opcode);
+
+	// Inclusive start and stop bounds.
+	std::vector<CommandInfo*> GetByOpcodeRange(UInt32 opcodeStart, UInt32 opcodeStop);
 
 	void	SetBaseID(UInt32 id)	{ m_baseID = id; m_curID = id; }
 	UInt32	GetMaxID(void)			{ return m_baseID + m_commands.size(); }
@@ -284,13 +326,16 @@ public:
 
 	void	Dump(void);
 	void	DumpAlternateCommandNames(void);
-	void	DumpCommandDocumentation(UInt32 startWithID = kNVSEOpcodeStart);
+	void	DumpCommandDocumentation(bool showQuickList, UInt32 startWithID = kNVSEOpcodeStart, 
+		bool showIfConditionOnly = false, bool showIfDeprecated = false);
 
 	CommandReturnType	GetReturnType(const CommandInfo * cmd);
 	void				SetReturnType(UInt32 opcode, CommandReturnType retnType);
 
 	UInt32				GetRequiredNVSEVersion(const CommandInfo * cmd);
 	PluginInfo *		GetParentPlugin(const CommandInfo * cmd);
+	PluginInfo*			GetPluginForCommand(const char* name);
+	CommandMetadata &	GetMetaDataForCommand(const CommandInfo* cmd);
 
 private:
 	// add commands for each release (will help keep track of commands)
@@ -303,9 +348,12 @@ private:
 
 	typedef std::vector <CommandInfo>				CommandList;
 	typedef UnorderedMap<UInt32, CommandMetadata>	CmdMetadataList;
+	// <opcode, <plugin name, version>>
+	typedef std::unordered_map<UInt32, std::tuple<std::string, UInt32>> CommandUpdateList;
 
-	CommandList		m_commands;
-	CmdMetadataList	m_metadata;
+	CommandList			m_commands;
+	CmdMetadataList		m_metadata;
+	CommandUpdateList	m_updateCommands;
 
 	UInt32		m_baseID;
 	UInt32		m_curID;

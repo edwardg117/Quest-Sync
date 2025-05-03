@@ -12,6 +12,18 @@ static ParamInfo kParams_TwoInts[2] =
 	{	"int", kParamType_Integer, 0 },
 	{	"int", kParamType_Integer, 0 },
 };
+static ParamInfo kParams_TwoInts_OneOptionalFloat[3] =
+{
+	{	"int", kParamType_Integer, 0 },
+	{	"int", kParamType_Integer, 0 },
+	{	"float", kParamType_Float, 1 },
+};
+static ParamInfo kParams_TwoInts_OneOptionalString[3] =
+{
+	{	"int", kParamType_Integer, 0 },
+	{	"int", kParamType_Integer, 0 },
+	{	"string", kParamType_String, 1 },
+};
 
 static ParamInfo kParams_OneOptionalInt[1] =
 {
@@ -22,6 +34,21 @@ static ParamInfo kParams_TwoOptionalInts[2] =
 {
 	{	"int", kParamType_Integer, 1 },
 	{	"int", kParamType_Integer, 1 },
+};
+
+static ParamInfo kParams_ThreeOptionalInts[3] =
+{
+	{	"int", kParamType_Integer, 1 },
+	{	"int", kParamType_Integer, 1 },
+	{	"int", kParamType_Integer, 1 }
+};
+
+static ParamInfo kParams_FourOptionalInts[4] =
+{
+	{	"int", kParamType_Integer, 1 },
+	{	"int", kParamType_Integer, 1 },
+	{	"int", kParamType_Integer, 1 },
+	{	"int", kParamType_Integer, 1 }
 };
 
 static ParamInfo kParams_OneInt_OneOptionalInt[2] =

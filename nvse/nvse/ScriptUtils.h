@@ -19,7 +19,6 @@ class ScriptLineMacro;
 struct Operator;
 struct ScriptEventList;
 class ExpressionEvaluator;
-struct UserFunctionParam;
 struct FunctionInfo;
 struct FunctionContext;
 class FunctionCaller;
@@ -29,6 +28,7 @@ class OffsetOutOfBoundsError : public std::exception {};
 #include "ScriptTokens.h"
 #include <stack>
 #include <utility>
+#include "StackVariables.h"
 
 #if RUNTIME
 #include <cstdarg>
@@ -42,10 +42,10 @@ extern ErrOutput g_ErrOut;
 extern std::unordered_map<Script*, Script*> g_lambdaParentScriptMap;
 extern std::map<std::pair<Script*, std::string>, Script::VariableType> g_variableDefinitionsMap;
 
-Script * GetLambdaParentScript(Script * scriptLambda);
+Script* GetLambdaParentScript(Script * scriptLambda);
 
 // these are used in ParamInfo to specify expected Token_Type of args to commands taking NVSE expressions as args
-enum {
+enum NVSEParamType : UInt32 {
 	kNVSEParamType_Number =		(1 << kTokenType_Number) | (1 << kTokenType_Ambiguous),
 	kNVSEParamType_Boolean =	(1 << kTokenType_Boolean) | (1 << kTokenType_Ambiguous),
 	kNVSEParamType_String =		(1 << kTokenType_String) | (1 << kTokenType_Ambiguous),
@@ -70,7 +70,10 @@ enum {
 	kNVSEParamType_FormOrNumber = kNVSEParamType_Form | kNVSEParamType_Number,
 	kNVSEParamType_StringOrNumber = kNVSEParamType_String | kNVSEParamType_Number,
 	kNVSEParamType_Pair	=	1 << kTokenType_Pair,
+	kNVSEParamType_OptionalEmpty = 1 << kTokenType_OptionalEmpty
 };
+
+const char* StringForNVSEParamType(NVSEParamType paramType);
 
 #define NVSE_EXPR_MAX_ARGS 20		// max # of args we'll accept to a commmand
 
@@ -86,11 +89,11 @@ private:
 	ParamSize_t	m_numParams;
 
 public:
-	DynamicParamInfo(const std::vector<UserFunctionParam> &params);
+	DynamicParamInfo(const std::vector<UserFunctionParam>& params);
 	DynamicParamInfo() : m_numParams(0) { }
 
-	ParamInfo* Params()	{	return m_paramInfo;	}
-	[[nodiscard]] ParamSize_t NumParams() const { return m_numParams;	}
+	ParamInfo* Params() { return m_paramInfo; }
+	[[nodiscard]] ParamSize_t NumParams() const { return m_numParams; }
 };
 
 #if RUNTIME
@@ -142,7 +145,7 @@ class ExpressionEvaluator
 public:
 	Bitfield<UInt32>	 m_flags;
 	UInt8				* m_scriptData;
-	UInt32				* m_opcodeOffsetPtr;
+	UInt32				* const m_opcodeOffsetPtr;
 	double				* m_result;
 	TESObjectREFR		* m_thisObj;
 	TESObjectREFR		* m_containingObj;
@@ -406,7 +409,7 @@ public:
 	~ExpressionParser();
 
 	bool			ParseArgs(ParamInfo* params, UInt32 numParams, bool bUsesNVSEParamTypes = true, bool parseWholeLine = true);
-	[[nodiscard]] bool			ValidateArgType(ParamType paramType, Token_Type argType, bool bIsNVSEParam) const;
+	static [[nodiscard]] bool			ValidateArgType(ParamType paramType, Token_Type argType, bool bIsNVSEParam, CommandInfo* cmdInfo);
 	bool GetUserFunctionParams(const std::vector<std::string>& paramNames, std::vector<UserFunctionParam>& outParams,
 	                           Script::VarInfoList* varList, const std::string& fullScriptText, Script* script) const;
 	bool ParseUserFunctionParameters(std::vector<UserFunctionParam>& out, const std::string& funcScriptText,
