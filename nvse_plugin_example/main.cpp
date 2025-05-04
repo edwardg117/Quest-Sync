@@ -6,7 +6,7 @@
 #include <string>
 //NoGore is unsupported in xNVSE
 
-IDebugLog		gLog("nvse_plugin_example.log");
+IDebugLog		gLog("QuestSync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 
 NVSEMessagingInterface* g_messagingInterface{};
@@ -55,7 +55,7 @@ _DecompileScript DecompileScript{};
  * This is because the "fn_.h" files are only used here,
  * and they are included after such globals/macros have been defined.
  ***************/
-#include "fn_intro_to_script_functions.h" 
+#include "fn_intro_to_script_functions.h"
 #include "fn_typed_functions.h"
 
 
@@ -70,7 +70,7 @@ _DecompileScript DecompileScript{};
 #define REG_TYPED_CMD(name, type)	nvse->RegisterTypedCommand(&kCommandInfo_##name,kRetnType_##type)
 
 // Allows having multiple different versions of commands that scripts can opt into by specifying a plugin version to compile with.
-// Notably useful to not break JIP ScriptRunner (SR) scripts when replacing the interface of an existing function, 
+// Notably useful to not break JIP ScriptRunner (SR) scripts when replacing the interface of an existing function,
 // ..since SR will assume to compile the oldest version of a func unless a more recent plugin version is specified.
 // 'requiredPluginVersion' should be in the same number format as the plugin's PluginInfo->version.
 #define REG_TYPED_CMD_VER(name, type, requiredPluginVersion)	nvse->RegisterTypedCommandVersion(&kCommandInfo_##name,kRetnType_##type, requiredPluginVersion)
@@ -118,7 +118,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
-	info->name = "MyFirstPlugin";
+	info->name = "QuestSync NVSE Plugin";
 	info->version = 2;
 
 	// version checks
@@ -203,7 +203,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 
 #endif
 	}
-	
+
 
 	/***************************************************************************
 	 *
@@ -221,10 +221,10 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 
 	// Do NOT use this value when releasing your plugin; request your own opcode range.
 	UInt32 const examplePluginOpcodeBase = 0x2000;
-	
+
 	 // register commands
 	nvse->SetOpcodeBase(examplePluginOpcodeBase);
-	
+
 	/*************************
 	 * The hexadecimal Opcodes are written as comments to the left of their respective functions.
 	 * It's important to keep track of how many Opcodes are being used up,
@@ -245,7 +245,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 	 * When we test the script now, a bug/crash is bound to happen,
 	 * since the script is looking for an Opcode which is no longer bound to the expected function.
 	 ************************/
-	
+
 	/*2000*/ RegisterScriptCommand(ExamplePlugin_PluginTest);
 	/*2001*/ REG_CMD(ExamplePlugin_CrashScript);
 	/*2002*/ REG_CMD(ExamplePlugin_IsNPCFemale);
@@ -253,6 +253,6 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 	/*2004*/ REG_TYPED_CMD(ExamplePlugin_ReturnForm, Form);
 	/*2005*/ REG_TYPED_CMD(ExamplePlugin_ReturnString, String);	// ignore the highlighting for String class, that's not being used here.
 	/*2006*/ REG_TYPED_CMD(ExamplePlugin_ReturnArray, Array);
-	
+
 	return true;
 }
