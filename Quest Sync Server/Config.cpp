@@ -130,6 +130,10 @@ bool Config::Load(const std::string& filename) {
                     file << "# Performance settings" << std::endl;
                     file << "# Control server performance and resource usage" << std::endl;
                 }
+                else if (section.first == "CommandInterface") {
+                    file << "# Command Interface settings" << std::endl;
+                    file << "# Control the server's command-line interface" << std::endl;
+                }
 
                 file << "[" << section.first << "]" << std::endl;
             }
@@ -488,6 +492,10 @@ bool Config::Save(const std::string& filename) {
             else if (section.first == "Performance") {
                 file << "# Performance settings" << std::endl;
                 file << "# Control server performance and resource usage" << std::endl;
+            }
+            else if (section.first == "CommandInterface") {
+                file << "# Command Interface settings" << std::endl;
+                file << "# Control the server's command-line interface" << std::endl;
             }
 
             file << "[" << section.first << "]" << std::endl;

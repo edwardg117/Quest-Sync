@@ -20,7 +20,32 @@ volatile sig_atomic_t g_shutdown = 0;
 // Signal handler for graceful shutdown
 void SignalHandler(int signal) {
     LOG_INFO("Received signal " + std::to_string(signal) + ", shutting down...");
+
+    // Set the shutdown flag to initiate graceful shutdown
     g_shutdown = 1;
+
+    // When Ctrl+C is pressed (SIGINT), we need to handle it specially
+    // to avoid issues with std::cin/std::cout in the command processor
+    if (signal == SIGINT) {
+        // Reset the console state to help with clean shutdown
+        std::cin.clear();
+        std::cout.clear();
+    }
+}
+
+// Common shutdown function to ensure consistent behavior
+void ShutdownServer() {
+    LOG_INFO("Stopping server due to shutdown signal...");
+
+    // Set the shutdown flag to initiate graceful shutdown
+    g_shutdown = 1;
+
+    // Reset console state to help with clean shutdown
+    std::cin.clear();
+    std::cout.clear();
+
+    // Give the main thread a chance to notice the shutdown flag
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 // Trim whitespace from a string
@@ -136,6 +161,14 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        // Check if CommandInterface section exists, but don't modify the file
+        // Just log a message if it's missing
+        if (config.GetString("CommandInterface.Enabled", "") == "") {
+            LOG_INFO("CommandInterface section not found in configuration file");
+            LOG_INFO("Using default value: CommandInterface.Enabled=true");
+            // We'll use the default value from GetBool below, but won't modify the file
+        }
+
         // Set logger levels from config
         std::string consoleLevel = config.GetString("Logging.ConsoleLevel", "INFO");
         std::string fileLevel = config.GetString("Logging.FileLevel", "DEBUG");
@@ -201,37 +234,109 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // Create and start the command processor if enabled
+        // Create the command processor
         CommandProcessor cmdProcessor(&server);
-        bool enableCommandInterface = config.GetBool("CommandInterface.Enabled", true);
+        bool enableCommandInterface = false;
 
-        if (enableCommandInterface) {
-            if (!cmdProcessor.Start()) {
-                LOG_WARNING("Failed to start command processor, continuing without CLI");
+        try {
+            // Check if command interface is enabled in config
+            enableCommandInterface = config.GetBool("CommandInterface.Enabled", true);
+
+            if (enableCommandInterface) {
+                LOG_INFO("Command interface is enabled in configuration");
+                if (!cmdProcessor.Start()) {
+                    LOG_WARNING("Failed to start command processor, continuing without CLI");
+                    enableCommandInterface = false;
+                }
+            } else {
+                LOG_INFO("Command interface is disabled in configuration");
             }
-        } else {
-            LOG_INFO("Command interface is disabled in configuration");
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR("Exception while starting command processor: " + std::string(e.what()));
+            LOG_WARNING("Continuing without command interface");
+            enableCommandInterface = false;
+        }
+        catch (...) {
+            LOG_ERROR("Unknown exception while starting command processor");
+            LOG_WARNING("Continuing without command interface");
+            enableCommandInterface = false;
         }
 
         // Main loop
-        LOG_INFO("Server running. Type 'help' for available commands or press Ctrl+C to stop.");
+        if (enableCommandInterface) {
+            LOG_INFO("Server running. Type 'help' for available commands or press Ctrl+C to stop.");
+            // Signal the command processor that it can start accepting input
+            cmdProcessor.SetReadyForInput();
+        } else {
+            LOG_INFO("Server running. Press Ctrl+C to stop.");
+        }
 
         // Keep the main thread alive until the server is stopped or Ctrl+C is pressed
         while (server.IsRunning() && !g_shutdown) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
-        // If we got here due to Ctrl+C, stop the command processor and server
-        if (g_shutdown && server.IsRunning()) {
-            LOG_INFO("Stopping server due to shutdown signal...");
+        // If we got here due to Ctrl+C or server stopped, clean up
+        LOG_INFO("Stopping server...");
+
+        try {
+            // First, set the shutdown flag to prevent new connections
+            g_shutdown = 1;
+
+            // Stop the command processor first if it's running
             if (enableCommandInterface && cmdProcessor.IsRunning()) {
-                cmdProcessor.Stop();
+                try {
+                    // Reset console state to help with clean shutdown
+                    std::cin.clear();
+                    std::cout.clear();
+
+                    LOG_DEBUG("Stopping command processor...");
+                    cmdProcessor.Stop();
+                }
+                catch (const std::exception& e) {
+                    // Don't log errors during normal shutdown as they can be confusing
+                    LOG_DEBUG("Exception while stopping command processor: " + std::string(e.what()));
+                }
+                catch (...) {
+                    LOG_DEBUG("Unknown exception while stopping command processor");
+                }
             }
-            server.Stop();
+
+            // Give the command processor a moment to clean up
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+            // Stop the server if it's still running
+            if (server.IsRunning()) {
+                try {
+                    LOG_DEBUG("Stopping server...");
+                    server.Stop();
+                }
+                catch (const std::exception& e) {
+                    LOG_ERROR("Exception while stopping server: " + std::string(e.what()));
+                }
+                catch (...) {
+                    LOG_ERROR("Unknown exception while stopping server");
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR("Exception during shutdown: " + std::string(e.what()));
+        }
+        catch (...) {
+            LOG_ERROR("Unknown exception during shutdown");
         }
 
+        // Make sure all streams are in a good state before exiting
+        std::cin.clear();
+        std::cout.clear();
+
         LOG_INFO("Server shutdown complete");
-        return 0;
+
+        // Always exit with code 0 for normal shutdown
+        // This ensures we don't return the MessageType::DISCONNECT value (3)
+        std::exit(0);
+        return 0; // This line will never be reached, but keeps the compiler happy
     } catch (const std::exception& e) {
         std::cerr << "Unhandled exception in main: " << e.what() << std::endl;
         LOG_CRITICAL("Unhandled exception in main: " + std::string(e.what()));
