@@ -402,3 +402,9 @@ ipch
 # Jetbrains
 nvse/.idea/
 nvse/enc_temp_folder/
+
+# Test output files
+Quest\ Sync\ Server/Tests/results/*.xml
+Quest\ Sync\ Server/Tests/results/*.json
+test-results-*.xml
+test-results-*.json
