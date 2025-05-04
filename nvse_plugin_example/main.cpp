@@ -171,10 +171,10 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		_MESSAGE("Deferred init - Initializing Quest Sync Network Client");
 
 		// Initialize and connect to the server
-		if (NetworkManager::GetInstance().Initialize(g_nvseInterface)) {
+		if (NetworkManager::GetInstance().Initialize(static_cast<const void*>(g_nvseInterface), g_consoleInterface)) {
 			if (NetworkManager::GetInstance().Connect()) {
 				_MESSAGE("Connected to Quest Sync server");
-				Console_Print("Connected to the Quest Sync server!");
+				// Notification is handled by NetworkManager now
 			} else {
 				_MESSAGE("Failed to connect to Quest Sync server");
 				Console_Print("Failed to connect to the Quest Sync server. Will try to reconnect automatically.");
@@ -281,6 +281,11 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 		g_eventInterface = static_cast<NVSEEventManagerInterface*>(nvse->QueryInterface(kInterface_EventManager));
 		g_serializationInterface = static_cast<NVSESerializationInterface*>(nvse->QueryInterface(kInterface_Serialization));
 		g_consoleInterface = static_cast<NVSEConsoleInterface*>(nvse->QueryInterface(kInterface_Console));
+		if (g_consoleInterface) {
+			_MESSAGE("Console interface obtained successfully");
+		} else {
+			_MESSAGE("WARNING: Failed to obtain console interface");
+		}
 		ExtractArgsEx = g_script->ExtractArgsEx;
 
 #if WantInventoryRefFunctions

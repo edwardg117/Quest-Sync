@@ -68,7 +68,7 @@ bool NetworkClient::Connect() {
     sockaddr_in serverAddr;
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(m_serverPort);
-    
+
     // Convert IP address string to binary
     if (inet_pton(AF_INET, m_serverAddress.c_str(), &serverAddr.sin_addr) != 1) {
         std::cerr << "Invalid IP address: " << m_serverAddress << std::endl;
@@ -98,7 +98,7 @@ bool NetworkClient::Connect() {
     // Connection successful
     m_connected = true;
     m_reconnectAttempts = 0;
-    
+
     // Start receive thread
     m_threadRunning = true;
     m_receiveThread = std::thread(&NetworkClient::ReceiveThreadFunction, this);
@@ -155,7 +155,7 @@ void NetworkClient::Disconnect() {
 // Clean up resources
 void NetworkClient::Cleanup() {
     Disconnect();
-    
+
     if (m_initialized) {
         WSACleanup();
         m_initialized = false;
@@ -175,7 +175,7 @@ bool NetworkClient::SendMessage(const Message& message) {
 
     // Serialize message
     std::vector<uint8_t> data = message.Serialize();
-    
+
     // Send data
     int bytesSent = send(m_socket, reinterpret_cast<const char*>(data.data()), static_cast<int>(data.size()), 0);
     if (bytesSent == SOCKET_ERROR) {
@@ -293,11 +293,11 @@ void NetworkClient::ReceiveThreadFunction() {
     while (m_threadRunning && m_connected) {
         // Receive data
         int bytesReceived = recv(m_socket, reinterpret_cast<char*>(buffer.data()), BUFFER_SIZE, 0);
-        
+
         if (bytesReceived > 0) {
             // Append received data to buffer
             receiveBuffer.insert(receiveBuffer.end(), buffer.begin(), buffer.begin() + bytesReceived);
-            
+
             // Process received data
             if (!ProcessReceivedData(receiveBuffer)) {
                 // Error processing data
@@ -332,10 +332,10 @@ bool NetworkClient::SendHandshake() {
     // Create handshake request
     HandshakeRequest request(m_clientVersion);
     std::vector<uint8_t> payload = request.Serialize();
-    
+
     // Create message
     Message message(MessageType::HANDSHAKE_REQUEST, payload);
-    
+
     // Send message
     return SendMessage(message);
 }
@@ -345,7 +345,7 @@ bool NetworkClient::ProcessHandshakeResponse(const Message& message) {
     try {
         // Deserialize handshake response
         HandshakeResponse response = HandshakeResponse::Deserialize(message.GetPayload());
-        
+
         // Check if handshake was accepted
         if (response.accepted) {
             m_handshakeCompleted = true;
@@ -368,32 +368,32 @@ bool NetworkClient::ProcessHandshakeResponse(const Message& message) {
 // Process received data
 bool NetworkClient::ProcessReceivedData(const std::vector<uint8_t>& data) {
     size_t processedBytes = 0;
-    
+
     while (processedBytes < data.size()) {
         // Check if we have enough data for a header
         if (data.size() - processedBytes < sizeof(MessageHeader)) {
             break;
         }
-        
+
         // Get header
         const MessageHeader* header = reinterpret_cast<const MessageHeader*>(data.data() + processedBytes);
-        
+
         // Check if we have the full message
         size_t messageSize = sizeof(MessageHeader) + header->payloadSize;
         if (data.size() - processedBytes < messageSize) {
             break;
         }
-        
+
         try {
             // Deserialize message
             std::unique_ptr<Message> message = Message::Deserialize(data.data() + processedBytes, messageSize);
-            
+
             // Add message to queue
             {
                 std::lock_guard<std::mutex> lock(m_queueMutex);
                 m_messageQueue.push(std::move(message));
             }
-            
+
             // Update processed bytes
             processedBytes += messageSize;
         }
@@ -402,11 +402,11 @@ bool NetworkClient::ProcessReceivedData(const std::vector<uint8_t>& data) {
             return false;
         }
     }
-    
+
     // Remove processed bytes from buffer
     std::vector<uint8_t> newData(data.begin() + processedBytes, data.end());
     const_cast<std::vector<uint8_t>&>(data) = newData;
-    
+
     return true;
 }
 
@@ -416,23 +416,24 @@ void NetworkClient::TryReconnect() {
     if (m_reconnectAttempts >= m_maxReconnectAttempts) {
         return;
     }
-    
+
     // Check if it's time to reconnect
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_lastReconnectAttempt).count();
-    
+
     if (elapsed < m_reconnectInterval) {
         return;
     }
-    
+
     // Try to reconnect
     m_lastReconnectAttempt = now;
     m_reconnectAttempts++;
-    
+
     std::cout << "Attempting to reconnect to server (" << m_reconnectAttempts << "/" << m_maxReconnectAttempts << ")..." << std::endl;
-    
+
     if (Connect()) {
         std::cout << "Reconnected to server" << std::endl;
+        // Connection status callback will handle the notification
     }
     else {
         std::cerr << "Failed to reconnect to server" << std::endl;
