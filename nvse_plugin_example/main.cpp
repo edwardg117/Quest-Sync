@@ -4,7 +4,12 @@
 #include "nvse/ParamInfos.h"
 #include "nvse/GameObjects.h"
 #include <string>
+#include <iostream>
 //NoGore is unsupported in xNVSE
+
+// Quest Sync includes
+#include "NetworkManager.h"
+#include "Config.h"
 
 IDebugLog		gLog("QuestSync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
@@ -82,33 +87,129 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 {
 	switch (msg->type)
 	{
-	case NVSEMessagingInterface::kMessage_PostLoad: break;
-	case NVSEMessagingInterface::kMessage_ExitGame: break;
-	case NVSEMessagingInterface::kMessage_ExitToMainMenu: break;
-	case NVSEMessagingInterface::kMessage_LoadGame: break;
-	case NVSEMessagingInterface::kMessage_SaveGame: break;
+	case NVSEMessagingInterface::kMessage_PostLoad:
+		_MESSAGE("Post-load");
+		break;
+
+	case NVSEMessagingInterface::kMessage_ExitGame:
+		_MESSAGE("Exit game");
+		// Disconnect from server when exiting game
+		NetworkManager::GetInstance().Disconnect();
+		break;
+
+	case NVSEMessagingInterface::kMessage_ExitToMainMenu:
+		_MESSAGE("Exit to main menu");
+		// Disconnect from server when exiting to main menu
+		NetworkManager::GetInstance().Disconnect();
+		break;
+
+	case NVSEMessagingInterface::kMessage_LoadGame:
+		_MESSAGE("Load game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		break;
+
+	case NVSEMessagingInterface::kMessage_SaveGame:
+		_MESSAGE("Save game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		break;
+
 #if EDITOR
-	case NVSEMessagingInterface::kMessage_ScriptEditorPrecompile: break;
+	case NVSEMessagingInterface::kMessage_ScriptEditorPrecompile:
+		_MESSAGE("Script editor precompile");
+		break;
 #endif
-	case NVSEMessagingInterface::kMessage_PreLoadGame: break;
-	case NVSEMessagingInterface::kMessage_ExitGame_Console: break;
-	case NVSEMessagingInterface::kMessage_PostLoadGame: break;
-	case NVSEMessagingInterface::kMessage_PostPostLoad: break;
-	case NVSEMessagingInterface::kMessage_RuntimeScriptError: break;
-	case NVSEMessagingInterface::kMessage_DeleteGame: break;
-	case NVSEMessagingInterface::kMessage_RenameGame: break;
-	case NVSEMessagingInterface::kMessage_RenameNewGame: break;
-	case NVSEMessagingInterface::kMessage_NewGame: break;
-	case NVSEMessagingInterface::kMessage_DeleteGameName: break;
-	case NVSEMessagingInterface::kMessage_RenameGameName: break;
-	case NVSEMessagingInterface::kMessage_RenameNewGameName: break;
-	case NVSEMessagingInterface::kMessage_DeferredInit: break;
-	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
-	case NVSEMessagingInterface::kMessage_MainGameLoop: break;
-	case NVSEMessagingInterface::kMessage_ScriptCompile: break;
-	case NVSEMessagingInterface::kMessage_EventListDestroyed: break;
-	case NVSEMessagingInterface::kMessage_PostQueryPlugins: break;
-	default: break;
+
+	case NVSEMessagingInterface::kMessage_PreLoadGame:
+		_MESSAGE("Pre-load game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		break;
+
+	case NVSEMessagingInterface::kMessage_ExitGame_Console:
+		_MESSAGE("Exit game via console");
+		// Disconnect from server when exiting game via console
+		NetworkManager::GetInstance().Disconnect();
+		break;
+
+	case NVSEMessagingInterface::kMessage_PostLoadGame:
+		_MESSAGE("Post-load game");
+		break;
+
+	case NVSEMessagingInterface::kMessage_PostPostLoad:
+		_MESSAGE("Post-post-load");
+		break;
+
+	case NVSEMessagingInterface::kMessage_RuntimeScriptError:
+		_MESSAGE("Runtime script error: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		break;
+
+	case NVSEMessagingInterface::kMessage_DeleteGame:
+		_MESSAGE("Delete game");
+		break;
+
+	case NVSEMessagingInterface::kMessage_RenameGame:
+		_MESSAGE("Rename game");
+		break;
+
+	case NVSEMessagingInterface::kMessage_RenameNewGame:
+		_MESSAGE("Rename new game");
+		break;
+
+	case NVSEMessagingInterface::kMessage_NewGame:
+		_MESSAGE("New game");
+		break;
+
+	case NVSEMessagingInterface::kMessage_DeleteGameName:
+		_MESSAGE("Delete game name");
+		break;
+
+	case NVSEMessagingInterface::kMessage_RenameGameName:
+		_MESSAGE("Rename game name");
+		break;
+
+	case NVSEMessagingInterface::kMessage_RenameNewGameName:
+		_MESSAGE("Rename new game name");
+		break;
+
+	case NVSEMessagingInterface::kMessage_DeferredInit:
+		_MESSAGE("Deferred init - Initializing Quest Sync Network Client");
+
+		// Initialize and connect to the server
+		if (NetworkManager::GetInstance().Initialize(g_nvseInterface)) {
+			if (NetworkManager::GetInstance().Connect()) {
+				_MESSAGE("Connected to Quest Sync server");
+				Console_Print("Connected to the Quest Sync server!");
+			} else {
+				_MESSAGE("Failed to connect to Quest Sync server");
+				Console_Print("Failed to connect to the Quest Sync server. Will try to reconnect automatically.");
+			}
+		} else {
+			_MESSAGE("Failed to initialize Quest Sync Network Manager");
+			Console_Print("Failed to initialize Quest Sync. Check the log for details.");
+		}
+		break;
+
+	case NVSEMessagingInterface::kMessage_ClearScriptDataCache:
+		_MESSAGE("Clear script data cache");
+		break;
+
+	case NVSEMessagingInterface::kMessage_MainGameLoop:
+		// Process network messages
+		if (NetworkManager::GetInstance().IsConnected()) {
+			NetworkManager::GetInstance().ProcessMessages();
+		}
+		break;
+
+	case NVSEMessagingInterface::kMessage_ScriptCompile:
+		_MESSAGE("Script compile");
+		break;
+
+	case NVSEMessagingInterface::kMessage_EventListDestroyed:
+		_MESSAGE("Event list destroyed");
+		break;
+
+	case NVSEMessagingInterface::kMessage_PostQueryPlugins:
+		_MESSAGE("Post query plugins");
+		break;
+
+	default:
+		break;
 	}
 }
 
@@ -119,7 +220,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "QuestSync NVSE Plugin";
-	info->version = 2;
+	info->version = 3;
 
 	// version checks
 	if (nvse->nvseVersion < PACKED_NVSE_VERSION)
@@ -219,11 +320,12 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 	 *
 	 **************************************************************************/
 
-	// Do NOT use this value when releasing your plugin; request your own opcode range.
-	UInt32 const examplePluginOpcodeBase = 0x2000;
+	// Using the example plugin opcode base for now
+	// In a real release, you would request your own opcode range
+	UInt32 const questSyncOpcodeBase = 0x2000;
 
-	 // register commands
-	nvse->SetOpcodeBase(examplePluginOpcodeBase);
+	// register commands
+	nvse->SetOpcodeBase(questSyncOpcodeBase);
 
 	/*************************
 	 * The hexadecimal Opcodes are written as comments to the left of their respective functions.
