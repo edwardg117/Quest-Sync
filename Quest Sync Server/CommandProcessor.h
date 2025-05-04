@@ -11,6 +11,7 @@
 #include <mutex>
 #include <queue>
 #include <condition_variable>
+#include <map>
 
 // Forward declaration of the common shutdown function
 void ShutdownServer();
@@ -20,6 +21,27 @@ void ShutdownServer();
 
 // Forward declaration
 class TCPServer;
+class Config;
+
+/**
+ * @brief Enum for command categories
+ */
+enum class CommandCategory {
+    GENERAL,
+    SERVER,
+    CLIENT,
+    CONFIG
+};
+
+/**
+ * @brief Command information structure
+ */
+struct CommandInfo {
+    std::string name;
+    std::string description;
+    CommandCategory category;
+    std::vector<std::string> aliases;
+};
 
 /**
  * @brief Command processor for handling CLI commands
@@ -89,6 +111,8 @@ private:
     // Command handlers
     using CommandHandler = std::function<bool(const std::vector<std::string>&)>;
     std::unordered_map<std::string, CommandHandler> m_commandHandlers;
+    std::unordered_map<std::string, std::string> m_commandAliases;
+    std::map<std::string, CommandInfo> m_commandInfo;
 
     /**
      * @brief Input thread function
@@ -108,10 +132,24 @@ private:
      */
     std::vector<std::string> TokenizeCommand(const std::string& input);
 
+public:
+    /**
+     * @brief Get possible command completions
+     *
+     * @param partial The partial command to complete
+     * @return std::vector<std::string> Possible completions
+     */
+    std::vector<std::string> GetCommandCompletions(const std::string& partial);
+
+private:
     // Command handlers
     bool HandleHelp(const std::vector<std::string>& args);
     bool HandleStop(const std::vector<std::string>& args);
     bool HandleStatus(const std::vector<std::string>& args);
+    bool HandleClients(const std::vector<std::string>& args);
+    bool HandleKick(const std::vector<std::string>& args);
+    bool HandleBroadcast(const std::vector<std::string>& args);
+    bool HandleConfig(const std::vector<std::string>& args);
 
     /**
      * @brief Check if a valid console is available for input/output

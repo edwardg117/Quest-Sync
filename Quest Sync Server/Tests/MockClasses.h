@@ -65,7 +65,16 @@ public:
     bool IsRunning() { return true; }
     size_t GetClientCount() { return 5; }
     void BroadcastMessage(const Message& message) {}
+    void BroadcastText(const std::string& text, SOCKET excludeSocket = INVALID_SOCKET) {}
     void SendMessage(SOCKET clientSocket, const Message& message) {}
+    bool KickClient(SOCKET clientSocket) { return clientSocket == 1; }
+
+    std::vector<std::tuple<SOCKET, std::string, bool>> GetClientInfo() {
+        std::vector<std::tuple<SOCKET, std::string, bool>> clients;
+        clients.emplace_back(1, "192.168.1.1:12345", true);
+        clients.emplace_back(2, "192.168.1.2:54321", false);
+        return clients;
+    }
 
     static MockTCPServer& GetInstance() {
         static MockTCPServer instance;

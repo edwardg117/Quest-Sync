@@ -140,6 +140,65 @@ size_t TCPServer::GetClientCount() {
     return m_clients.size();
 }
 
+// Get information about all connected clients
+std::vector<std::tuple<SOCKET, std::string, bool>> TCPServer::GetClientInfo() {
+    std::vector<std::tuple<SOCKET, std::string, bool>> clientInfo;
+
+    // Lock the clients map
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+
+    // Iterate through all clients
+    for (const auto& client : m_clients) {
+        SOCKET socket = client.first;
+        bool authenticated = client.second;
+
+        // Get the client's IP address
+        sockaddr_in clientAddr;
+        int clientAddrSize = sizeof(clientAddr);
+        std::string ipAddress = "Unknown";
+
+        // Get the peer name (IP address)
+        if (getpeername(socket, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrSize) != SOCKET_ERROR) {
+            char clientIP[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
+            ipAddress = std::string(clientIP) + ":" + std::to_string(ntohs(clientAddr.sin_port));
+        }
+
+        // Add the client info to the vector
+        clientInfo.emplace_back(socket, ipAddress, authenticated);
+    }
+
+    return clientInfo;
+}
+
+// Disconnect a client by socket ID
+bool TCPServer::KickClient(SOCKET clientSocket) {
+    // Check if the client exists
+    {
+        std::lock_guard<std::mutex> lock(m_clientsMutex);
+        if (m_clients.find(clientSocket) == m_clients.end()) {
+            return false;
+        }
+    }
+
+    // Disconnect the client
+    DisconnectClient(clientSocket);
+    return true;
+}
+
+// Send a text message to all connected clients
+void TCPServer::BroadcastText(const std::string& text, SOCKET excludeSocket) {
+    // Create a text message
+    Message message(MessageType::TEXT_MESSAGE);
+
+    // Create a simple payload with the text
+    std::vector<uint8_t> payload(text.begin(), text.end());
+    message.SetPayload(payload);
+
+    // Broadcast the message
+    BroadcastMessage(message, excludeSocket);
+}
+
 // Main server loop
 void TCPServer::ServerLoop() {
     LOG_DEBUG("Server loop starting");

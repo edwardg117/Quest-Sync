@@ -21,6 +21,7 @@ enum class MessageType : uint16_t {
     DATA_REQUEST = 100,           // Client -> Server: Request data
     DATA_RESPONSE = 101,          // Server -> Client: Send requested data
     EVENT_NOTIFICATION = 200,     // Both ways: Notify about an event
+    TEXT_MESSAGE = 201,           // Both ways: Simple text message
 
     // Error messages
     ERROR_MESSAGE = 900,          // Both ways: Error notification

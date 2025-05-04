@@ -89,6 +89,29 @@ public:
      */
     size_t GetClientCount();
 
+    /**
+     * @brief Get information about all connected clients
+     *
+     * @return Vector of client information (socket, IP address, authenticated status)
+     */
+    std::vector<std::tuple<SOCKET, std::string, bool>> GetClientInfo();
+
+    /**
+     * @brief Disconnect a client by socket ID
+     *
+     * @param clientSocket Socket of the client to disconnect
+     * @return true if client was disconnected, false if client was not found
+     */
+    bool KickClient(SOCKET clientSocket);
+
+    /**
+     * @brief Send a text message to all connected clients
+     *
+     * @param text Text message to send
+     * @param excludeSocket Optional socket to exclude from broadcast
+     */
+    void BroadcastText(const std::string& text, SOCKET excludeSocket = INVALID_SOCKET);
+
 private:
     // Server configuration
     std::string m_ipAddress;

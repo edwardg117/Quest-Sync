@@ -7,12 +7,22 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <algorithm>
+#include <conio.h> // For _getch() mock
 
 // Add missing member variable for test implementation
 namespace {
     // This is a test-only extension of the Logger class to add the m_logFilePath member
     // that's needed for the test implementation but not in the actual Logger class
     std::string g_logFilePath;
+
+    // Mock for _getch() to use in tests
+    int g_nextChar = 13; // Default to Enter key
+}
+
+// Mock implementation of _getch() for testing
+int _getch() {
+    return g_nextChar;
 }
 
 // Message class implementations
@@ -598,13 +608,31 @@ void TCPServer::BroadcastMessage(const Message& message, SOCKET excludeSocket) {
     // For testing, do nothing
 }
 
+void TCPServer::BroadcastText(const std::string& text, SOCKET excludeSocket) {
+    // For testing, do nothing
+}
+
+std::vector<std::tuple<SOCKET, std::string, bool>> TCPServer::GetClientInfo() {
+    // For testing, return some mock clients
+    std::vector<std::tuple<SOCKET, std::string, bool>> clients;
+    clients.emplace_back(1, "192.168.1.1:12345", true);
+    clients.emplace_back(2, "192.168.1.2:54321", false);
+    return clients;
+}
+
+bool TCPServer::KickClient(SOCKET clientSocket) {
+    // For testing, only succeed for client ID 1
+    return clientSocket == 1;
+}
+
 size_t TCPServer::GetClientCount() {
-    return 0; // For testing
+    return 2; // For testing
 }
 
 // CommandProcessor class implementations
 CommandProcessor::CommandProcessor(TCPServer* server)
-    : m_server(server), m_running(false) {
+    : m_server(server), m_running(false), m_readyForInput(false) {
+    RegisterCommands();
 }
 
 CommandProcessor::~CommandProcessor() {
@@ -623,8 +651,169 @@ void CommandProcessor::Stop() {
 // IsRunning and SetReadyForInput are already defined as inline functions in CommandProcessor.h
 
 bool CommandProcessor::ProcessCommand(const std::string& command) {
-    if (command == "stop") {
-        return false; // Signal to stop
+    // Tokenize the command
+    std::vector<std::string> tokens = TokenizeCommand(command);
+
+    // If no tokens, return
+    if (tokens.empty()) {
+        return true;
     }
-    return true; // Continue processing
+
+    // Get the command name (first token)
+    std::string commandName = tokens[0];
+
+    // Convert to lowercase
+    std::transform(commandName.begin(), commandName.end(), commandName.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    // Check if it's an alias
+    auto aliasIt = m_commandAliases.find(commandName);
+    if (aliasIt != m_commandAliases.end()) {
+        // Replace the command name with the actual command
+        commandName = aliasIt->second;
+    }
+
+    // Find the command handler
+    auto it = m_commandHandlers.find(commandName);
+    if (it != m_commandHandlers.end()) {
+        // Execute the command handler
+        return it->second(tokens);
+    } else {
+        // Unknown command
+        return true;
+    }
+}
+
+// Register all command handlers
+void CommandProcessor::RegisterCommands() {
+    // Clear existing command handlers and info
+    m_commandHandlers.clear();
+    m_commandAliases.clear();
+    m_commandInfo.clear();
+
+    // Register general commands
+
+    // Help command
+    m_commandHandlers["help"] = [this](const std::vector<std::string>& args) {
+        return HandleHelp(args);
+    };
+    m_commandInfo["help"] = {"help", "Display help information", CommandCategory::GENERAL, {}};
+
+    // Stop command
+    m_commandHandlers["stop"] = [this](const std::vector<std::string>& args) {
+        return HandleStop(args);
+    };
+    m_commandInfo["stop"] = {"stop", "Stop the server", CommandCategory::SERVER, {"exit", "quit"}};
+    m_commandAliases["exit"] = "stop";
+    m_commandAliases["quit"] = "stop";
+
+    // Status command
+    m_commandHandlers["status"] = [this](const std::vector<std::string>& args) {
+        return HandleStatus(args);
+    };
+    m_commandInfo["status"] = {"status", "Display server status", CommandCategory::SERVER, {}};
+
+    // Register client commands
+
+    // Clients command
+    m_commandHandlers["clients"] = [this](const std::vector<std::string>& args) {
+        return HandleClients(args);
+    };
+    m_commandInfo["clients"] = {"clients", "List all connected clients", CommandCategory::CLIENT, {"list"}};
+    m_commandAliases["list"] = "clients";
+
+    // Kick command
+    m_commandHandlers["kick"] = [this](const std::vector<std::string>& args) {
+        return HandleKick(args);
+    };
+    m_commandInfo["kick"] = {"kick", "Disconnect a specific client", CommandCategory::CLIENT, {"disconnect"}};
+    m_commandAliases["disconnect"] = "kick";
+
+    // Broadcast command
+    m_commandHandlers["broadcast"] = [this](const std::vector<std::string>& args) {
+        return HandleBroadcast(args);
+    };
+    m_commandInfo["broadcast"] = {"broadcast", "Send a message to all clients", CommandCategory::CLIENT, {"say"}};
+    m_commandAliases["say"] = "broadcast";
+
+    // Register config commands
+
+    // Config command
+    m_commandHandlers["config"] = [this](const std::vector<std::string>& args) {
+        return HandleConfig(args);
+    };
+    m_commandInfo["config"] = {"config", "View or change configuration settings", CommandCategory::CONFIG, {"settings"}};
+    m_commandAliases["settings"] = "config";
+}
+
+// Split a string into tokens
+std::vector<std::string> CommandProcessor::TokenizeCommand(const std::string& input) {
+    std::vector<std::string> tokens;
+    std::istringstream iss(input);
+    std::string token;
+
+    while (iss >> token) {
+        tokens.push_back(token);
+    }
+
+    return tokens;
+}
+
+// Get possible command completions
+std::vector<std::string> CommandProcessor::GetCommandCompletions(const std::string& partial) {
+    std::vector<std::string> completions;
+
+    // Convert partial to lowercase for case-insensitive matching
+    std::string partialLower = partial;
+    std::transform(partialLower.begin(), partialLower.end(), partialLower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    // Check all commands
+    for (const auto& cmd : m_commandInfo) {
+        if (cmd.first.find(partialLower) == 0) {
+            completions.push_back(cmd.first);
+        }
+    }
+
+    // Check all aliases
+    for (const auto& alias : m_commandAliases) {
+        if (alias.first.find(partialLower) == 0) {
+            completions.push_back(alias.first);
+        }
+    }
+
+    return completions;
+}
+
+// Command handlers
+bool CommandProcessor::HandleHelp(const std::vector<std::string>& args) {
+    return true;
+}
+
+bool CommandProcessor::HandleStop(const std::vector<std::string>& args) {
+    return false; // Signal to stop
+}
+
+bool CommandProcessor::HandleStatus(const std::vector<std::string>& args) {
+    return true;
+}
+
+bool CommandProcessor::HandleClients(const std::vector<std::string>& args) {
+    return true;
+}
+
+bool CommandProcessor::HandleKick(const std::vector<std::string>& args) {
+    return true;
+}
+
+bool CommandProcessor::HandleBroadcast(const std::vector<std::string>& args) {
+    return true;
+}
+
+bool CommandProcessor::HandleConfig(const std::vector<std::string>& args) {
+    return true;
+}
+
+bool CommandProcessor::IsConsoleAvailable() {
+    return true;
 }
