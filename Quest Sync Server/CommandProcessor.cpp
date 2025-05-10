@@ -679,8 +679,9 @@ bool CommandProcessor::HandleBroadcast(const std::vector<std::string>& args) {
         }
     }
 
-    // Broadcast the message
-    m_server->BroadcastText(message);
+    // Broadcast the message using ERROR_MESSAGE instead of TEXT_MESSAGE
+    Message broadcastMsg(MessageType::ERROR_MESSAGE, message);
+    m_server->BroadcastMessage(broadcastMsg);
 
     std::cout << "Message broadcast to all clients: " << message << std::endl;
 
@@ -806,3 +807,4 @@ bool CommandProcessor::IsConsoleAvailable() {
         return false;
     }
 }
+

@@ -55,19 +55,28 @@ bool NetworkClient::Connect() {
     _MESSAGE("NetworkClient::Connect - Client version: %d.%d", m_clientVersion[0], m_clientVersion[1]);
     _MESSAGE("NetworkClient::Connect - Debug mode: %s", m_debugMode ? "enabled" : "disabled");
 
-    // Log memory sizes for debugging
-    _MESSAGE("NetworkClient::Connect - Size of bool: %u bytes", sizeof(bool));
-    _MESSAGE("NetworkClient::Connect - Size of uint32_t: %u bytes", sizeof(uint32_t));
-    _MESSAGE("NetworkClient::Connect - Size of MessageHeader: %u bytes", sizeof(MessageHeader));
-    _MESSAGE("NetworkClient::Connect - Size of HandshakeRequest: %u bytes", sizeof(HandshakeRequest));
-    _MESSAGE("NetworkClient::Connect - Size of HandshakeResponse: %u bytes", sizeof(HandshakeResponse));
-
-    if (m_connected) {
-        _MESSAGE("NetworkClient::Connect - Already connected");
-        return true;
-    }
-
     try {
+        // Check if already connected
+        if (m_connected) {
+            _MESSAGE("NetworkClient::Connect - Already connected");
+            return true;
+        }
+
+        // Initialize if not already initialized
+        if (!m_initialized) {
+            if (!Initialize()) {
+                _MESSAGE("NetworkClient::Connect - Failed to initialize");
+                return false;
+            }
+        }
+        
+        // Log memory sizes for debugging
+        _MESSAGE("NetworkClient::Connect - Size of bool: %u bytes", sizeof(bool));
+        _MESSAGE("NetworkClient::Connect - Size of uint32_t: %u bytes", sizeof(uint32_t));
+        _MESSAGE("NetworkClient::Connect - Size of MessageHeader: %u bytes", sizeof(MessageHeader));
+        _MESSAGE("NetworkClient::Connect - Size of HandshakeRequest: %u bytes", sizeof(HandshakeRequest));
+        _MESSAGE("NetworkClient::Connect - Size of HandshakeResponse: %u bytes", sizeof(HandshakeResponse));
+
         // Create socket
         _MESSAGE("NetworkClient::Connect - Creating socket");
         m_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -175,26 +184,26 @@ bool NetworkClient::Connect() {
     }
     catch (const std::exception& e) {
         _MESSAGE("NetworkClient::Connect - Exception during connect: %s", e.what());
-
+        
         // Clean up resources
         if (m_socket != INVALID_SOCKET) {
             closesocket(m_socket);
             m_socket = INVALID_SOCKET;
         }
         m_connected = false;
-
+        
         return false;
     }
     catch (...) {
         _MESSAGE("NetworkClient::Connect - Unknown exception during connect");
-
+        
         // Clean up resources
         if (m_socket != INVALID_SOCKET) {
             closesocket(m_socket);
             m_socket = INVALID_SOCKET;
         }
         m_connected = false;
-
+        
         return false;
     }
 }
@@ -591,224 +600,146 @@ void NetworkClient::ProcessMessages() {
 void NetworkClient::ReceiveThreadFunction() {
     _MESSAGE("NetworkClient::ReceiveThreadFunction - Started");
 
-    const int BUFFER_SIZE = 4096;
-    std::vector<uint8_t> buffer(BUFFER_SIZE);
-    std::vector<uint8_t> receiveBuffer;
-
-    // Use a local copy of the socket to avoid race conditions during shutdown
-    SOCKET localSocket = m_socket;
-
-    // Track consecutive errors to prevent excessive logging
+    // Buffer for receiving data
+    char buffer[BUFFER_SIZE];
+    
+    // Track consecutive errors to avoid log spam
     int consecutiveErrors = 0;
-    const int MAX_CONSECUTIVE_ERRORS = 5;
+    const int MAX_CONSECUTIVE_ERRORS = 10;
 
-    while (m_threadRunning && m_connected && localSocket != INVALID_SOCKET) {
-        // Check if socket is still valid
-        if (localSocket != m_socket) {
-            _MESSAGE("NetworkClient::ReceiveThreadFunction - Socket changed, updating local copy");
-            localSocket = m_socket;
-            if (localSocket == INVALID_SOCKET) {
-                break;
-            }
+    // Set socket to non-blocking mode
+    u_long mode = 1;
+    if (ioctlsocket(m_socket, FIONBIO, &mode) != 0) {
+        _MESSAGE("NetworkClient::ReceiveThreadFunction - Failed to set socket to non-blocking mode");
+    }
+
+    // Receive loop
+    while (m_threadRunning) {
+        // Check if we're still connected
+        if (!m_connected) {
+            _MESSAGE("NetworkClient::ReceiveThreadFunction - Not connected, exiting thread");
+            break;
         }
 
-        try {
-            // Set up a timeout for recv using select
-            fd_set readSet;
-            FD_ZERO(&readSet);
-            FD_SET(localSocket, &readSet);
+        // Try to receive data
+        int bytesReceived = recv(m_socket, buffer, BUFFER_SIZE, 0);
 
-            // Set timeout to 100ms
-            timeval timeout;
-            timeout.tv_sec = 0;
-            timeout.tv_usec = 100000; // 100ms
+        if (bytesReceived > 0) {
+            // Process received data
+            try {
+                // Add a small delay to prevent CPU hogging
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-            // Wait for data or timeout
-            int selectResult = select(0, &readSet, NULL, NULL, &timeout);
-
-            if (selectResult == SOCKET_ERROR) {
-                int error = WSAGetLastError();
-
-                // Only log if we haven't seen too many consecutive errors
-                if (consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Select error: %d", error);
-                    consecutiveErrors++;
+                // Log the raw received data
+                std::string rawDataHex;
+                for (int i = 0; i < bytesReceived && i < 64; ++i) {
+                    char hex[8];
+                    sprintf_s(hex, "%02X ", buffer[i]);
+                    rawDataHex += hex;
                 }
-
-                // For non-critical errors, just continue
-                if (error == WSAEINTR || error == WSAEWOULDBLOCK) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    continue;
+                if (bytesReceived > 64) {
+                    rawDataHex += "...";
                 }
-
-                // For critical errors, break the loop
-                break;
-            }
-
-            // Reset consecutive errors counter on successful select
-            consecutiveErrors = 0;
-
-            if (selectResult == 0) {
-                // Timeout, no data available
-                continue;
-            }
-
-            // Receive data
-            // Only log occasionally to prevent log spam
-            static int receiveCounter = 0;
-            bool shouldLogReceive = (receiveCounter++ % 100 == 0);
-
-            if (shouldLogReceive) {
-                _MESSAGE("NetworkClient::ReceiveThreadFunction - Waiting to receive data...");
-            }
-
-            int bytesReceived = recv(localSocket, reinterpret_cast<char*>(buffer.data()), BUFFER_SIZE, 0);
-
-            if (bytesReceived > 0) {
-                if (shouldLogReceive) {
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Received %d bytes", bytesReceived);
-
-                    // Log the raw received data
-                    std::string rawDataHex;
-                    for (int i = 0; i < bytesReceived && i < 64; ++i) {
-                        char hex[8];
-                        sprintf_s(hex, "%02X ", buffer[i]);
-                        rawDataHex += hex;
-                    }
-                    if (bytesReceived > 64) {
-                        rawDataHex += "...";
-                    }
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Raw received data (hex): %s", rawDataHex.c_str());
-                }
-
-                // Append received data to buffer
-                if (shouldLogReceive) {
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Appending to receive buffer (current size: %u bytes)", receiveBuffer.size());
-                }
-
-                receiveBuffer.insert(receiveBuffer.end(), buffer.begin(), buffer.begin() + bytesReceived);
-
-                if (shouldLogReceive) {
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - New receive buffer size: %u bytes", receiveBuffer.size());
-                }
+                _MESSAGE("NetworkClient::ReceiveThreadFunction - Raw received data (hex): %s", rawDataHex.c_str());
 
                 // Process received data
-                if (shouldLogReceive) {
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Processing received data");
-                }
-
-                if (!ProcessReceivedData(receiveBuffer)) {
+                if (!ProcessReceivedData(buffer, bytesReceived)) {
                     // Error processing data
                     _MESSAGE("NetworkClient::ReceiveThreadFunction - Error processing data");
 
                     // Don't break immediately, just clear the buffer and continue
-                    receiveBuffer.clear();
+                    std::memset(buffer, 0, BUFFER_SIZE);
 
                     // Add a small delay to prevent CPU spinning
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
             }
-            else if (bytesReceived == 0) {
-                // Connection closed
-                _MESSAGE("NetworkClient::ReceiveThreadFunction - Connection closed by server (received 0 bytes)");
-                break;
+            catch (const std::exception& e) {
+                _MESSAGE("NetworkClient::ReceiveThreadFunction - Exception processing received data: %s", e.what());
+                std::memset(buffer, 0, BUFFER_SIZE);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
-            else {
-                // Error or would block
-                int error = WSAGetLastError();
-                if (error == WSAEWOULDBLOCK) {
-                    // This is normal, just continue
-                    continue;
-                }
-
-                // Handle connection reset specifically
-                if (error == WSAECONNRESET) {
-                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Connection reset by server (error: %d)", error);
-                    // Don't break immediately, try to reconnect
-                    m_connected = false;
-
-                    // Try to reconnect immediately
-                    try {
-                        _MESSAGE("NetworkClient::ReceiveThreadFunction - Attempting immediate reconnect");
-                        // Close the socket first
-                        if (localSocket != INVALID_SOCKET) {
-                            closesocket(localSocket);
-                            localSocket = INVALID_SOCKET;
-                        }
-
-                        // Create a new socket
-                        m_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-                        if (m_socket != INVALID_SOCKET) {
-                            // Set up server address
-                            sockaddr_in serverAddr;
-                            serverAddr.sin_family = AF_INET;
-                            serverAddr.sin_port = htons(m_serverPort);
-                            inet_pton(AF_INET, m_serverAddress.c_str(), &serverAddr.sin_addr);
-
-                            // Get connection timeout from config
-                            Config& config = Config::GetInstance();
-                            int timeoutSeconds = config.GetInt("Network.ConnectionTimeout", 5);
-                            DWORD timeout = timeoutSeconds * 1000; // Convert to milliseconds
-                            _MESSAGE("NetworkClient::ReceiveThreadFunction - Using connection timeout of %d seconds (%d ms)", timeoutSeconds, timeout);
-                            setsockopt(m_socket, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
-                            setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-
-                            // Connect to server
-                            _MESSAGE("NetworkClient::ReceiveThreadFunction - Connecting to server with %d second timeout...", timeoutSeconds);
-                            int result = connect(m_socket, (sockaddr*)&serverAddr, sizeof(serverAddr));
-                            if (result != SOCKET_ERROR) {
-                                _MESSAGE("NetworkClient::ReceiveThreadFunction - Reconnected successfully");
-                                m_connected = true;
-                                localSocket = m_socket;
-                                continue;
-                            } else {
-                                _MESSAGE("NetworkClient::ReceiveThreadFunction - Reconnect failed, error: %d", WSAGetLastError());
-                                closesocket(m_socket);
-                                m_socket = INVALID_SOCKET;
-                            }
-                        }
-                    }
-                    catch (const std::exception& e) {
-                        _MESSAGE("NetworkClient::ReceiveThreadFunction - Exception during reconnect attempt: %s", e.what());
-                    }
-                    catch (...) {
-                        _MESSAGE("NetworkClient::ReceiveThreadFunction - Unknown exception during reconnect attempt");
-                    }
-                } else {
-                    // Only log if we haven't seen too many consecutive errors
-                    if (consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
-                        _MESSAGE("NetworkClient::ReceiveThreadFunction - Error receiving data: %d", error);
-                        consecutiveErrors++;
-                    }
-                }
-
-                // For any error other than WSAEWOULDBLOCK, break the loop
-                break;
+            catch (...) {
+                _MESSAGE("NetworkClient::ReceiveThreadFunction - Unknown exception processing received data");
+                std::memset(buffer, 0, BUFFER_SIZE);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
-        catch (const std::exception& e) {
-            _MESSAGE("NetworkClient::ReceiveThreadFunction - Exception: %s", e.what());
-
-            // Add a small delay to prevent CPU spinning on repeated exceptions
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            // Don't break immediately, only if we've seen too many consecutive errors
-            if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                _MESSAGE("NetworkClient::ReceiveThreadFunction - Too many consecutive errors, breaking loop");
-                break;
-            }
+        else if (bytesReceived == 0) {
+            // Connection closed
+            _MESSAGE("NetworkClient::ReceiveThreadFunction - Connection closed by server (received 0 bytes)");
+            break;
         }
-        catch (...) {
-            _MESSAGE("NetworkClient::ReceiveThreadFunction - Unknown exception");
-
-            // Add a small delay to prevent CPU spinning on repeated exceptions
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            // Don't break immediately, only if we've seen too many consecutive errors
-            if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                _MESSAGE("NetworkClient::ReceiveThreadFunction - Too many consecutive errors, breaking loop");
-                break;
+        else {
+            // Error or would block
+            int error = WSAGetLastError();
+            if (error == WSAEWOULDBLOCK) {
+                // This is normal, just continue
+                continue;
             }
+
+            // Handle connection reset specifically
+            if (error == WSAECONNRESET) {
+                _MESSAGE("NetworkClient::ReceiveThreadFunction - Connection reset by server (error: %d)", error);
+                // Don't break immediately, try to reconnect
+                m_connected = false;
+
+                // Try to reconnect immediately
+                try {
+                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Attempting immediate reconnect");
+                    // Close the socket first
+                    if (m_socket != INVALID_SOCKET) {
+                        closesocket(m_socket);
+                        m_socket = INVALID_SOCKET;
+                    }
+
+                    // Create a new socket
+                    m_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                    if (m_socket != INVALID_SOCKET) {
+                        // Set up server address
+                        sockaddr_in serverAddr;
+                        serverAddr.sin_family = AF_INET;
+                        serverAddr.sin_port = htons(m_serverPort);
+                        inet_pton(AF_INET, m_serverAddress.c_str(), &serverAddr.sin_addr);
+
+                        // Get connection timeout from config
+                        Config& config = Config::GetInstance();
+                        int timeoutSeconds = config.GetInt("Network.ConnectionTimeout", 5);
+                        DWORD timeout = timeoutSeconds * 1000; // Convert to milliseconds
+                        _MESSAGE("NetworkClient::ReceiveThreadFunction - Using connection timeout of %d seconds (%d ms)", timeoutSeconds, timeout);
+                        setsockopt(m_socket, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+                        setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+
+                        // Connect to server
+                        _MESSAGE("NetworkClient::ReceiveThreadFunction - Connecting to server with %d second timeout...", timeoutSeconds);
+                        int result = connect(m_socket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+                        if (result != SOCKET_ERROR) {
+                            _MESSAGE("NetworkClient::ReceiveThreadFunction - Reconnected successfully");
+                            m_connected = true;
+                            continue;
+                        } else {
+                            _MESSAGE("NetworkClient::ReceiveThreadFunction - Reconnect failed, error: %d", WSAGetLastError());
+                            closesocket(m_socket);
+                            m_socket = INVALID_SOCKET;
+                        }
+                    }
+                }
+                catch (const std::exception& e) {
+                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Exception during reconnect attempt: %s", e.what());
+                }
+                catch (...) {
+                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Unknown exception during reconnect attempt");
+                }
+            } else {
+                // Only log if we haven't seen too many consecutive errors
+                if (consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Error receiving data: %d", error);
+                    consecutiveErrors++;
+                }
+            }
+
+            // For any error other than WSAEWOULDBLOCK, break the loop
+            break;
         }
     }
 
@@ -995,6 +926,23 @@ bool NetworkClient::ProcessHandshakeResponse(const Message& message) {
 }
 
 // Process received data
+bool NetworkClient::ProcessReceivedData(char* buffer, int bytesReceived) {
+    try {
+        // Convert buffer to vector for easier handling
+        std::vector<uint8_t> data(buffer, buffer + bytesReceived);
+        return ProcessReceivedData(data);
+    }
+    catch (const std::exception& e) {
+        _MESSAGE("NetworkClient::ProcessReceivedData - Exception: %s", e.what());
+        return false;
+    }
+    catch (...) {
+        _MESSAGE("NetworkClient::ProcessReceivedData - Unknown exception");
+        return false;
+    }
+}
+
+// Process received data
 bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
     size_t processedBytes = 0;
 
@@ -1145,50 +1093,58 @@ bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
 
 // Try to reconnect to the server
 void NetworkClient::TryReconnect() {
+    // Check if we're already connected
+    if (m_connected) {
+        _MESSAGE("NetworkClient::TryReconnect - Already connected");
+        return;
+    }
+
+    // Check if we've exceeded the maximum number of reconnect attempts
+    if (m_reconnectAttempts >= m_maxReconnectAttempts) {
+        _MESSAGE("NetworkClient::TryReconnect - Maximum reconnect attempts (%d) exceeded",
+                m_maxReconnectAttempts);
+        return;
+    }
+
+    // Check if we need to wait before reconnecting
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        now - m_lastReconnectAttempt).count();
+
+    if (elapsed < m_reconnectInterval) {
+        // Not enough time has passed since the last attempt
+        return;
+    }
+
+    // Try to reconnect
+    m_lastReconnectAttempt = now;
+    m_reconnectAttempts++;
+
+    _MESSAGE("NetworkClient::TryReconnect - Attempting to reconnect to server (%d/%d)...",
+            m_reconnectAttempts, m_maxReconnectAttempts);
+
+    // Make sure we're fully disconnected before reconnecting
+    if (m_connected || m_socket != INVALID_SOCKET) {
+        _MESSAGE("NetworkClient::TryReconnect - Disconnecting before reconnect attempt");
+        Disconnect();
+
+        // Add a small delay to ensure resources are cleaned up
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    // Double-check socket is closed
+    if (m_socket != INVALID_SOCKET) {
+        _MESSAGE("NetworkClient::TryReconnect - Socket still open, closing before reconnect");
+        closesocket(m_socket);
+        m_socket = INVALID_SOCKET;
+    }
+
+    // Reset connection state
+    m_connected = false;
+    m_handshakeCompleted = false;
+
+    // Attempt to connect
     try {
-        // Check if we've reached the maximum number of reconnect attempts
-        if (m_reconnectAttempts >= m_maxReconnectAttempts) {
-            _MESSAGE("NetworkClient::TryReconnect - Maximum reconnect attempts reached (%d/%d), giving up",
-                    m_reconnectAttempts, m_maxReconnectAttempts);
-            return;
-        }
-
-        // Check if it's time to reconnect
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_lastReconnectAttempt).count();
-
-        if (elapsed < m_reconnectInterval) {
-            return;
-        }
-
-        // Try to reconnect
-        m_lastReconnectAttempt = now;
-        m_reconnectAttempts++;
-
-        _MESSAGE("NetworkClient::TryReconnect - Attempting to reconnect to server (%d/%d)...",
-                m_reconnectAttempts, m_maxReconnectAttempts);
-
-        // Make sure we're fully disconnected before reconnecting
-        if (m_connected || m_socket != INVALID_SOCKET) {
-            _MESSAGE("NetworkClient::TryReconnect - Disconnecting before reconnect attempt");
-            Disconnect();
-
-            // Add a small delay to ensure resources are cleaned up
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        // Double-check socket is closed
-        if (m_socket != INVALID_SOCKET) {
-            _MESSAGE("NetworkClient::TryReconnect - Socket still open, closing before reconnect");
-            closesocket(m_socket);
-            m_socket = INVALID_SOCKET;
-        }
-
-        // Reset connection state
-        m_connected = false;
-        m_handshakeCompleted = false;
-
-        // Attempt to connect
         if (Connect()) {
             _MESSAGE("NetworkClient::TryReconnect - Reconnected to server successfully");
             // Reset reconnect attempts on successful connection
@@ -1230,6 +1186,14 @@ void NetworkClient::TryReconnect() {
         m_handshakeCompleted = false;
     }
 }
+
+
+
+
+
+
+
+
 
 
 

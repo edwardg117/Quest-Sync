@@ -10,47 +10,25 @@
 
 // Message types
 enum class MessageType : uint16_t {
-    // System messages - These MUST match the server's MessageType enum
-    HANDSHAKE_REQUEST = 0,           // Client -> Server: Initial connection with version info
-    HANDSHAKE_RESPONSE = 1,          // Server -> Client: Accept/reject connection
-    HEARTBEAT = 2,                   // Both ways: Keep connection alive
-    DISCONNECT = 3,                  // Both ways: Graceful disconnect
+    // System messages
+    HANDSHAKE_REQUEST = 0,        // Client -> Server: Initial connection with version info
+    HANDSHAKE_RESPONSE = 1,       // Server -> Client: Accept/reject connection
+    HEARTBEAT = 2,                // Both ways: Keep connection alive
+    DISCONNECT = 3,               // Both ways: Graceful disconnect
+    ERROR_MESSAGE = 4,            // Both ways: Error message
 
-    // Legacy message types - Kept for compatibility with old code
-    CONNECTION_ACKNOWLEDGEMENT = 4,  // Server -> Client: Connection acknowledgement
-    QUEST_UPDATED = 5,               // Client -> Server: Quest progress updated
-    QUEST_COMPLETED = 6,             // Client -> Server: Quest completed
-    UPDATE_QUEST = 7,                // Server -> Client: Update quest
-    COMPLETE_QUEST = 8,              // Server -> Client: Complete quest
-    REQUEST_ALL_QUEST_STATES = 9,    // Client -> Server: Request all quest states
-    ALL_QUEST_STATES = 10,           // Server -> Client: All quest states
-    REQUEST_CURRENT_QUESTS = 11,     // Client -> Server: Request current quests
-    CURRENT_ACTIVE_QUESTS = 12,      // Server -> Client: Current active quests
-    RESEND_CONN_ACK = 13,            // Client -> Server: Resend connection acknowledgement
-    NEW_QUEST = 14,                  // Client -> Server: New quest acquired
-    QUEST_INACTIVE = 15,             // Client -> Server: Quest inactive
-    QUEST_FAILED = 16,               // Client -> Server: Quest failed
-    START_QUEST = 17,                // Server -> Client: Start quest
-    FAIL_QUEST = 18,                 // Server -> Client: Fail quest
-    INACTIVE_QUEST = 19,             // Server -> Client: Inactive quest
-    OBJECTIVE_COMPLETED = 20,        // Client -> Server: Objective completed
-    COMPLETE_OBJECTIVE = 21,         // Server -> Client: Complete objective
-    REQUEST_ACTIVE_QUESTS = 22,      // Either -> Either: Request active quests
-    ACTIVE_QUESTS = 23,              // Either -> Either: Active quests
-    NONE = 24,                       // Either -> Either: Message type not set
-    SHUTDOWN = 25,                   // Interface -> Server: Stop operations
-
-    // Application-specific messages (from server)
-    DATA_REQUEST = 100,              // Client -> Server: Request data
-    DATA_RESPONSE = 101,             // Server -> Client: Send requested data
-    EVENT_NOTIFICATION = 200,        // Both ways: Notify about an event
-    TEXT_MESSAGE = 201,              // Both ways: Simple text message
-
-    // Error messages
-    ERROR_MESSAGE = 900,             // Both ways: Error notification
-
-    // Reserved
-    RESERVED = 65535                 // Reserved for future use
+    // Quest sync messages
+    UPDATE_QUEST = 5,             // Server -> Client: Update quest stage
+    COMPLETE_QUEST = 6,           // Server -> Client: Complete quest
+    FAIL_QUEST = 7,               // Server -> Client: Fail quest
+    START_QUEST = 8,              // Server -> Client: Start quest
+    COMPLETE_OBJECTIVE = 9,       // Server -> Client: Complete objective
+    
+    // New message types
+    OBJECTIVE_UPDATE = 20,        // Client -> Server -> Other Clients: Objective state update
+    
+    // Reserved for future use
+    RESERVED = 65535              // Reserved for future use
 };
 
 // Message header structure
@@ -131,3 +109,6 @@ struct HandshakeResponse {
 };
 
 #endif // MESSAGE_H
+
+
+

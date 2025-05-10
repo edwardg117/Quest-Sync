@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include <csignal>
+#include <sstream>
 
 #include "TCPServer.h"
 #include "Message.h"
@@ -88,35 +89,62 @@ void HandleMessage(TCPServer* server, SOCKET clientSocket, const Message& messag
             break;
         }
 
-        case MessageType::DATA_REQUEST: {
-            // Example: client is requesting data
-            std::string request = message.GetPayloadAsString();
-            LOG_INFO("Client " + std::to_string(clientSocket) + " requested data: " + request);
-
-            // Create a response
-            std::string responseData = "Response to request: " + request;
-            Message response(MessageType::DATA_RESPONSE, responseData);
-            if (!server->SendToClient(clientSocket, response)) {
-                LOG_ERROR("Failed to send data response to client " + std::to_string(clientSocket));
-            }
+        case MessageType::ERROR_MESSAGE: {
+            // Example: client sent an error message
+            std::string errorText = message.GetPayloadAsString();
+            LOG_INFO("Client " + std::to_string(clientSocket) + " sent error: " + errorText);
             break;
         }
 
-        case MessageType::EVENT_NOTIFICATION: {
-            // Example: client sent an event notification
-            std::string event = message.GetPayloadAsString();
-            LOG_INFO("Client " + std::to_string(clientSocket) + " sent event: " + event);
-
-            // Broadcast to all other clients
-            server->BroadcastMessage(message, clientSocket);
-            break;
-        }
-
-        case MessageType::QUEST_UPDATE: {
+        case MessageType::UPDATE_QUEST: {
             // Quest update received from client
             std::string questData = message.GetPayloadAsString();
             LOG_INFO("Client " + std::to_string(clientSocket) + " sent quest update: " + questData);
-
+            
+            // Parse the key-value pairs for better logging
+            std::map<std::string, std::string> questInfo;
+            
+            // Split by semicolons instead of newlines
+            std::vector<std::string> pairs;
+            std::string delimiter = ";";
+            size_t pos = 0;
+            std::string token;
+            std::string str = questData;
+            
+            while ((pos = str.find(delimiter)) != std::string::npos) {
+                token = str.substr(0, pos);
+                pairs.push_back(token);
+                str.erase(0, pos + delimiter.length());
+            }
+            if (!str.empty()) {
+                pairs.push_back(str);
+            }
+            
+            // Process each key-value pair
+            for (const auto& pair : pairs) {
+                size_t eqPos = pair.find('=');
+                if (eqPos != std::string::npos) {
+                    std::string key = pair.substr(0, eqPos);
+                    std::string value = pair.substr(eqPos + 1);
+                    Trim(key);
+                    Trim(value);
+                    questInfo[key] = value;
+                }
+            }
+            
+            // Create a more detailed log message
+            std::string questName = questInfo["Name"];
+            std::string questId = questInfo["ID"];
+            std::string flags = questInfo["Flags"];
+            std::string active = questInfo["active"];
+            std::string completed = questInfo["completed"];
+            std::string failed = questInfo["failed"];
+            
+            LOG_INFO("Quest Update from client " + std::to_string(clientSocket) + ":");
+            LOG_INFO("  Quest: " + questName + " (ID: " + questId + ")");
+            LOG_INFO("  Flags: " + flags + " (Active: " + active + 
+                     ", Completed: " + completed + ", Failed: " + failed + ")");
+            
             // Broadcast to all other clients
             server->BroadcastMessage(message, clientSocket);
             break;
@@ -126,7 +154,50 @@ void HandleMessage(TCPServer* server, SOCKET clientSocket, const Message& messag
             // Objective update received from client
             std::string objectiveData = message.GetPayloadAsString();
             LOG_INFO("Client " + std::to_string(clientSocket) + " sent objective update: " + objectiveData);
-
+            
+            // Parse the key-value pairs for better logging
+            std::map<std::string, std::string> objectiveInfo;
+            
+            // Split by semicolons instead of newlines
+            std::vector<std::string> pairs;
+            std::string delimiter = ";";
+            size_t pos = 0;
+            std::string token;
+            std::string str = objectiveData;
+            
+            while ((pos = str.find(delimiter)) != std::string::npos) {
+                token = str.substr(0, pos);
+                pairs.push_back(token);
+                str.erase(0, pos + delimiter.length());
+            }
+            if (!str.empty()) {
+                pairs.push_back(str);
+            }
+            
+            // Process each key-value pair
+            for (const auto& pair : pairs) {
+                size_t eqPos = pair.find('=');
+                if (eqPos != std::string::npos) {
+                    std::string key = pair.substr(0, eqPos);
+                    std::string value = pair.substr(eqPos + 1);
+                    Trim(key);
+                    Trim(value);
+                    objectiveInfo[key] = value;
+                }
+            }
+            
+            // Create a more detailed log message
+            std::string questName = objectiveInfo["Name"];
+            std::string questId = objectiveInfo["ID"];
+            std::string objectiveId = objectiveInfo["objectiveId"];
+            std::string displayText = objectiveInfo["displayText"];
+            std::string completed = objectiveInfo["completed"];
+            
+            LOG_INFO("Objective Update from client " + std::to_string(clientSocket) + ":");
+            LOG_INFO("  Quest: " + questName + " (ID: " + questId + ")");
+            LOG_INFO("  Objective: " + objectiveId + " - " + displayText);
+            LOG_INFO("  Completed: " + completed);
+            
             // Broadcast to all other clients
             server->BroadcastMessage(message, clientSocket);
             break;
@@ -367,3 +438,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 }
+
+
+
+
+
+

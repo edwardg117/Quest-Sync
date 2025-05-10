@@ -54,12 +54,13 @@ struct QuestState {
     bool active;
     bool completed;
     bool failed;
+    UInt32 rawFlags;  // Add this field to store the original flags
     std::unordered_map<UInt32, ObjectiveState> objectives;
 
-    QuestState() : questId(0), questName(""), active(false), completed(false), failed(false) {}
+    QuestState() : questId(0), questName(""), active(false), completed(false), failed(false), rawFlags(0) {}
 
-    QuestState(UInt32 id, const std::string& name, bool isActive, bool isCompleted, bool isFailed)
-        : questId(id), questName(name), active(isActive), completed(isCompleted), failed(isFailed) {}
+    QuestState(UInt32 id, const std::string& name, bool isActive, bool isCompleted, bool isFailed, UInt32 flags = 0)
+        : questId(id), questName(name), active(isActive), completed(isCompleted), failed(isFailed), rawFlags(flags) {}
 
     // Equality operator for comparing states
     bool operator==(const QuestState& other) const {
@@ -67,6 +68,7 @@ struct QuestState {
                active == other.active &&
                completed == other.completed &&
                failed == other.failed &&
+               rawFlags == other.rawFlags &&
                objectives == other.objectives;
     }
 
@@ -177,8 +179,8 @@ private:
 
     // Helper methods
     bool DetectQuestChanges(const std::unordered_map<UInt32, QuestState>& currentStates);
-    void SendQuestUpdate(const QuestState& questState);
-    void SendObjectiveUpdate(const QuestState& questState, const ObjectiveState& objectiveState);
+    bool SendQuestUpdate(const QuestState& questState);
+    bool SendObjectiveUpdate(const QuestState& questState, const ObjectiveState& objectiveState);
     std::string QuestIdToHexString(UInt32 questId) const;
     QuestState CreateQuestStateFromGameQuest(TESQuest* quest);
     ObjectiveState CreateObjectiveStateFromGameObjective(BGSQuestObjective* objective);
@@ -188,6 +190,12 @@ private:
     bool SetQuestStage(const std::string& questId, UInt32 stage);
     bool CompleteQuest(const std::string& questId);
     bool FailQuest(const std::string& questId);
+
+    // Helper method to create a string from key-value pairs
+    std::string CreateKeyValueString(const std::map<std::string, std::string>& data) const;
 };
 
 #endif // QUEST_STATE_TRACKER_H
+
+
+

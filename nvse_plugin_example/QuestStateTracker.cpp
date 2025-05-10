@@ -1,9 +1,11 @@
 #include "QuestStateTracker.h"
 #include "NetworkManager.h"
+#include "Message.h" // This should include the MessageType enum
 #include "nvse/PluginAPI.h"
 #include <sstream>
 #include <iomanip>
 #include <map>
+#include <algorithm>
 
 // Singleton instance
 QuestStateTracker& QuestStateTracker::GetInstance() {
@@ -316,17 +318,16 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
     if (isFirstUpdate) {
         _MESSAGE("QuestStateTracker: First update after loading save, sending only active quests");
 
-        // Add a significant delay before sending any quest updates after loading a save
-        // This gives the connection time to stabilize
-        _MESSAGE("QuestStateTracker: Waiting 3 seconds before sending quest updates to ensure connection stability");
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-
+        // Reduce the delay before sending quest updates
+        _MESSAGE("QuestStateTracker: Waiting 500ms before sending quest updates");
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        
         // Check if we're still connected after the delay
         if (!m_networkManager || !m_networkManager->IsConnected()) {
             _MESSAGE("QuestStateTracker: Not connected after delay, cannot send updates");
             return false;
         }
-
+        
         // Count active quests
         int activeQuestCount = 0;
         std::vector<const QuestState*> activeQuests;
@@ -350,44 +351,47 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 
         // If we have active quests, send them in batches
         if (!activeQuests.empty()) {
-            // Send active quests in smaller batches with longer delays between batches
-            const int batchSize = 1; // Send only one quest at a time
+            // Send active quests in larger batches with shorter delays
+            const int batchSize = 5; // Increase batch size
             int batchCount = (activeQuestCount + batchSize - 1) / batchSize; // Ceiling division
 
             _MESSAGE("QuestStateTracker: Sending active quests in %d batches of up to %d quests each",
                      batchCount, batchSize);
 
-            // Limit the number of quests we send initially to avoid overwhelming the server
-            const int maxInitialQuests = 5;
+            // Increase the number of quests we send initially
+            const int maxInitialQuests = 15; // Increase initial quest limit
             int questsToSend = (activeQuestCount > maxInitialQuests) ? maxInitialQuests : activeQuestCount;
 
             _MESSAGE("QuestStateTracker: Limiting initial sync to %d quests", questsToSend);
 
-            for (int batch = 0; batch < questsToSend; batch++) {
+            for (int batch = 0; batch < (questsToSend + batchSize - 1) / batchSize; batch++) {
                 // Check connection before each batch
                 if (!m_networkManager->IsConnected()) {
                     _MESSAGE("QuestStateTracker: Connection lost during batch sending, aborting");
                     return changesSent;
                 }
 
-                _MESSAGE("QuestStateTracker: Sending batch %d/%d (quest %d)",
-                         batch + 1, questsToSend, batch + 1);
+                _MESSAGE("QuestStateTracker: Sending batch %d/%d", 
+                         batch + 1, (questsToSend + batchSize - 1) / batchSize);
 
-                // Send quest in this batch
-                SendQuestUpdate(*activeQuests[batch]);
-                changesSent = true;
+                // Send quests in this batch
+                int startIdx = batch * batchSize;
+                int endIdx = std::min<int>(startIdx + batchSize, questsToSend);
+                
+                for (int i = startIdx; i < endIdx && i < static_cast<int>(activeQuests.size()); i++) {
+                    SendQuestUpdate(*activeQuests[i]);
+                    changesSent = true;
+                }
 
                 // Process any pending messages before sending the next batch
                 if (m_networkManager) {
-                    // Instead of directly calling ProcessQueuedMessages, we'll call ProcessMessages
-                    // which will internally call ProcessQueuedMessages
                     m_networkManager->ProcessMessages();
                 }
 
-                // Add a longer delay between batches to avoid overwhelming the server
-                if (batch < questsToSend - 1) {
+                // Reduce delay between batches
+                if (batch < (questsToSend + batchSize - 1) / batchSize - 1) {
                     _MESSAGE("QuestStateTracker: Waiting before sending next batch");
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Reduced delay
                 }
             }
 
@@ -454,30 +458,25 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 }
 
 // Helper function to create a key-value string
-std::string CreateKeyValueString(const std::map<std::string, std::string>& data) {
+std::string QuestStateTracker::CreateKeyValueString(const std::map<std::string, std::string>& data) const {
     std::stringstream ss;
-
+    bool first = true;
+    
     for (const auto& [key, value] : data) {
-        // Check if value needs quotes (contains spaces or special characters)
-        bool needsQuotes = value.find_first_of(" \t\n\r;=") != std::string::npos;
-
-        ss << key << "=";
-        if (needsQuotes) {
-            ss << "\"" << value << "\"";
-        } else {
-            ss << value;
+        if (!first) {
+            ss << ";";  // Use semicolon as separator
         }
-        ss << ";";
+        first = false;
+        ss << key << "=" << value;
     }
-
+    
     return ss.str();
 }
 
 // Send quest update to server
-void QuestStateTracker::SendQuestUpdate(const QuestState& questState) {
-    if (!m_networkManager) {
-        _MESSAGE("QuestStateTracker: Cannot send quest update, network manager is null");
-        return;
+bool QuestStateTracker::SendQuestUpdate(const QuestState& questState) {
+    if (!m_networkManager || !m_networkManager->IsConnected()) {
+        return false;
     }
 
     // Create payload as key-value pairs
@@ -485,47 +484,38 @@ void QuestStateTracker::SendQuestUpdate(const QuestState& questState) {
     payload["ID"] = QuestIdToHexString(questState.questId);
     payload["Name"] = questState.questName;
     payload["Stage"] = "";
-    payload["Flags"] = "000000";
+
+    // Convert the raw flags to a hex string
+    std::stringstream flagsStream;
+    flagsStream << std::hex << std::setfill('0') << std::setw(6) << questState.rawFlags;
+    payload["Flags"] = flagsStream.str();
+
     payload["active"] = questState.active ? "true" : "false";
     payload["completed"] = questState.completed ? "true" : "false";
     payload["failed"] = questState.failed ? "true" : "false";
 
-    // Determine message type
-    MessageType type;
-    if (questState.completed) {
-        type = MessageType::QUEST_COMPLETED;
-    } else if (questState.failed) {
-        type = MessageType::QUEST_FAILED;
-    } else if (!questState.active) {
-        type = MessageType::QUEST_INACTIVE;
-    } else {
-        type = MessageType::QUEST_UPDATED;
+    // Create the payload string directly here
+    std::stringstream ss;
+    bool first = true;
+
+    for (const auto& [key, value] : payload) {
+        if (!first) {
+            ss << ";";  // Use semicolon as separator
+        }
+        first = false;
+        ss << key << "=" << value;
     }
 
-    // Only log important state changes (completed, failed) or occasionally
-    static int logCounter = 0;
-    bool shouldLog = (questState.completed || questState.failed || logCounter++ % 10 == 0);
+    std::string payloadStr = ss.str();
 
-    if (shouldLog) {
-        _MESSAGE("QuestStateTracker: Sending update for quest %s (%s) - Type: %d, Active: %s, Completed: %s, Failed: %s",
-                 questState.questName.c_str(),
-                 QuestIdToHexString(questState.questId).c_str(),
-                 static_cast<int>(type),
-                 questState.active ? "true" : "false",
-                 questState.completed ? "true" : "false",
-                 questState.failed ? "true" : "false");
-    }
-
-    // Send message
-    std::string payloadStr = CreateKeyValueString(payload);
-    m_networkManager->QueueMessage(type, payloadStr);
+    // Send the message
+    return m_networkManager->SendMessage(MessageType::UPDATE_QUEST, payloadStr);
 }
 
 // Send objective update to server
-void QuestStateTracker::SendObjectiveUpdate(const QuestState& questState, const ObjectiveState& objectiveState) {
-    if (!m_networkManager) {
-        _MESSAGE("QuestStateTracker: Cannot send objective update, network manager is null");
-        return;
+bool QuestStateTracker::SendObjectiveUpdate(const QuestState& questState, const ObjectiveState& objectiveState) {
+    if (!m_networkManager || !m_networkManager->IsConnected()) {
+        return false;
     }
 
     // Create payload as key-value pairs
@@ -533,36 +523,33 @@ void QuestStateTracker::SendObjectiveUpdate(const QuestState& questState, const 
     payload["ID"] = QuestIdToHexString(questState.questId);
     payload["Name"] = questState.questName;
     payload["Stage"] = "";
-    payload["Flags"] = "000000";
+
+    // Convert the raw flags to a hex string
+    std::stringstream flagsStream;
+    flagsStream << std::hex << std::setfill('0') << std::setw(6) << questState.rawFlags;
+    payload["Flags"] = flagsStream.str();
+
     payload["objectiveId"] = std::to_string(objectiveState.objectiveId);
     payload["displayText"] = objectiveState.displayText;
     payload["displayed"] = objectiveState.displayed ? "true" : "false";
     payload["completed"] = objectiveState.completed ? "true" : "false";
 
-    // Determine message type
-    MessageType type;
-    if (objectiveState.completed) {
-        type = MessageType::OBJECTIVE_COMPLETED;
-    } else {
-        type = MessageType::QUEST_UPDATED;
+    // Create the payload string directly here
+    std::stringstream ss;
+    bool first = true;
+    
+    for (const auto& [key, value] : payload) {
+        if (!first) {
+            ss << ";";  // Use semicolon as separator
+        }
+        first = false;
+        ss << key << "=" << value;
     }
+    
+    std::string payloadStr = ss.str();
 
-    // Only log completed objectives or occasionally
-    static int logCounter = 0;
-    bool shouldLog = (objectiveState.completed || logCounter++ % 10 == 0);
-
-    if (shouldLog) {
-        _MESSAGE("QuestStateTracker: Sending objective update for quest %s (%s), objective %d - Type: %d, Completed: %s",
-                 questState.questName.c_str(),
-                 QuestIdToHexString(questState.questId).c_str(),
-                 objectiveState.objectiveId,
-                 static_cast<int>(type),
-                 objectiveState.completed ? "true" : "false");
-    }
-
-    // Send message
-    std::string payloadStr = CreateKeyValueString(payload);
-    m_networkManager->QueueMessage(type, payloadStr);
+    // Send the message
+    return m_networkManager->SendMessage(MessageType::OBJECTIVE_UPDATE, payloadStr);
 }
 
 // Convert quest ID to hex string
@@ -583,7 +570,7 @@ QuestState QuestStateTracker::CreateQuestStateFromGameQuest(TESQuest* quest) {
     bool completed = (quest->flags & 2) == 2;
     bool failed = (quest->flags & 64) == 64;
 
-    return QuestState(quest->refID, name, active, completed, failed);
+    return QuestState(quest->refID, name, active, completed, failed, quest->flags);
 }
 
 // Create objective state from game objective
@@ -623,5 +610,36 @@ bool QuestStateTracker::FailQuest(const std::string& questId) {
     std::string command = "FailQuest " + questId;
     return ExecuteConsoleCommand(command);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

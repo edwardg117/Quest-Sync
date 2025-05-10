@@ -189,7 +189,7 @@ bool TCPServer::KickClient(SOCKET clientSocket) {
 // Send a text message to all connected clients
 void TCPServer::BroadcastText(const std::string& text, SOCKET excludeSocket) {
     // Create a text message
-    Message message(MessageType::TEXT_MESSAGE);
+    Message message(MessageType::ERROR_MESSAGE);  // Changed from TEXT_MESSAGE to ERROR_MESSAGE
 
     // Create a simple payload with the text
     std::vector<uint8_t> payload(text.begin(), text.end());
@@ -508,3 +508,4 @@ bool TCPServer::CreateListenSocket() {
 
     return true;
 }
+

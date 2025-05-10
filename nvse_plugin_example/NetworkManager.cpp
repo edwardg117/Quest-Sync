@@ -516,13 +516,38 @@ void NetworkManager::Reset() {
 void NetworkManager::HandleSaveGameLoaded() {
     _MESSAGE("NetworkManager::HandleSaveGameLoaded - Called");
 
-    // Always disconnect and reconnect to ensure a clean connection state
+    // Check if we're already connected
+    if (m_client && m_client->IsConnected()) {
+        _MESSAGE("NetworkManager::HandleSaveGameLoaded - Already connected, sending heartbeat to verify connection");
+        
+        // Send a heartbeat to verify the connection is still valid
+        if (m_client->SendMessage(MessageType::HEARTBEAT, "")) {
+            _MESSAGE("NetworkManager::HandleSaveGameLoaded - Heartbeat sent successfully, maintaining connection");
+            
+            // Clear any pending messages to start fresh
+            {
+                std::lock_guard<std::mutex> lock(m_queueMutex);
+                if (!m_messageQueue.empty()) {
+                    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Clearing %d pending messages", m_messageQueue.size());
+                    std::queue<std::pair<MessageType, std::string>> empty;
+                    std::swap(m_messageQueue, empty);
+                }
+            }
+            
+            // Connection is still good, no need to disconnect and reconnect
+            return;
+        }
+        
+        _MESSAGE("NetworkManager::HandleSaveGameLoaded - Heartbeat failed, will disconnect and reconnect");
+    }
+
+    // If we get here, we need to disconnect and reconnect
     _MESSAGE("NetworkManager::HandleSaveGameLoaded - Disconnecting to reset connection state");
     Disconnect();
 
-    // Add a delay before reconnecting to allow the server to clean up the old connection
+    // Reduce delay before reconnecting
     _MESSAGE("NetworkManager::HandleSaveGameLoaded - Waiting before reconnecting");
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // Further reduced from 500ms
 
     // Clear any pending messages to start fresh
     {
@@ -649,6 +674,8 @@ void NetworkManager::OnConnectionStatusChanged(NetworkClient* client, bool conne
         ShowNotification("Disconnected from Quest Sync server");
     }
 }
+
+
 
 
 

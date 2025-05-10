@@ -30,6 +30,9 @@ using ConnectionStatusCallback = std::function<void(NetworkClient*, bool)>;
  */
 class NetworkClient {
 public:
+    // Buffer size for receiving data (8KB)
+    static constexpr size_t BUFFER_SIZE = 8192;
+
     /**
      * @brief Constructor
      *
@@ -203,7 +206,10 @@ private:
     bool SendHandshake();
     bool ProcessHandshakeResponse(const Message& message);
     bool ProcessReceivedData(std::vector<uint8_t>& data);
+    bool ProcessReceivedData(char* buffer, int bytesReceived);
     void TryReconnect();
 };
 
 #endif // NETWORK_CLIENT_H
+
+
