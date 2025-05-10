@@ -96,9 +96,12 @@ std::unique_ptr<Message> Message::Deserialize(const uint8_t* data, size_t size) 
 std::vector<uint8_t> HandshakeRequest::Serialize() const {
     std::vector<uint8_t> result(sizeof(int) * 2);
 
-    // Store version components
-    std::memcpy(result.data(), &clientVersion[0], sizeof(int));
-    std::memcpy(result.data() + sizeof(int), &clientVersion[1], sizeof(int));
+    // Store version components (match server implementation)
+    int major = clientVersion[0];
+    int minor = clientVersion[1];
+
+    std::memcpy(result.data(), &major, sizeof(int));
+    std::memcpy(result.data() + sizeof(int), &minor, sizeof(int));
 
     return result;
 }
@@ -106,13 +109,15 @@ std::vector<uint8_t> HandshakeRequest::Serialize() const {
 // Deserialize from binary
 HandshakeRequest HandshakeRequest::Deserialize(const std::vector<uint8_t>& data) {
     if (data.size() < sizeof(int) * 2) {
-        throw std::runtime_error("Data too small to contain a handshake request");
+        throw std::runtime_error("Not enough data to deserialize HandshakeRequest");
     }
 
-    HandshakeRequest request;
-    std::memcpy(&request.clientVersion[0], data.data(), sizeof(int));
-    std::memcpy(&request.clientVersion[1], data.data() + sizeof(int), sizeof(int));
+    // Extract version components
+    int major, minor;
+    std::memcpy(&major, data.data(), sizeof(int));
+    std::memcpy(&minor, data.data() + sizeof(int), sizeof(int));
 
+    HandshakeRequest request(std::array<int, 2>{major, minor});
     return request;
 }
 
@@ -120,18 +125,20 @@ HandshakeRequest HandshakeRequest::Deserialize(const std::vector<uint8_t>& data)
 
 // Serialize to binary
 std::vector<uint8_t> HandshakeResponse::Serialize() const {
-    // Calculate size: 1 byte for accepted + message length
-    std::vector<uint8_t> result(1 + message.size() + 1); // +1 for null terminator
+    // Calculate size: bool + string length + string data
+    size_t totalSize = sizeof(bool) + sizeof(uint32_t) + message.size();
+    std::vector<uint8_t> result(totalSize);
 
     // Store accepted flag
-    result[0] = accepted ? 1 : 0;
+    std::memcpy(result.data(), &accepted, sizeof(bool));
 
-    // Store message with null terminator
+    // Store message length
+    uint32_t messageLength = static_cast<uint32_t>(message.size());
+    std::memcpy(result.data() + sizeof(bool), &messageLength, sizeof(uint32_t));
+
+    // Store message content
     if (!message.empty()) {
-        std::memcpy(result.data() + 1, message.c_str(), message.size() + 1);
-    }
-    else {
-        result[1] = '\0';
+        std::copy(message.begin(), message.end(), result.begin() + sizeof(bool) + sizeof(uint32_t));
     }
 
     return result;
@@ -139,17 +146,30 @@ std::vector<uint8_t> HandshakeResponse::Serialize() const {
 
 // Deserialize from binary
 HandshakeResponse HandshakeResponse::Deserialize(const std::vector<uint8_t>& data) {
-    if (data.empty()) {
-        throw std::runtime_error("Data too small to contain a handshake response");
+    if (data.size() < sizeof(bool) + sizeof(uint32_t)) {
+        throw std::runtime_error("Not enough data to deserialize HandshakeResponse");
     }
 
-    HandshakeResponse response;
-    response.accepted = data[0] != 0;
+    // Extract accepted flag
+    bool accepted;
+    std::memcpy(&accepted, data.data(), sizeof(bool));
 
-    // Extract message if present
-    if (data.size() > 1) {
-        response.message = reinterpret_cast<const char*>(data.data() + 1);
+    // Extract message length
+    uint32_t messageLength;
+    std::memcpy(&messageLength, data.data() + sizeof(bool), sizeof(uint32_t));
+
+    // Check if we have enough data for the message
+    if (data.size() < sizeof(bool) + sizeof(uint32_t) + messageLength) {
+        throw std::runtime_error("Not enough data to deserialize HandshakeResponse message");
     }
 
+    // Extract message content
+    std::string message;
+    if (messageLength > 0) {
+        // Create a string from the data directly
+        message = std::string(reinterpret_cast<const char*>(data.data() + sizeof(bool) + sizeof(uint32_t)), messageLength);
+    }
+
+    HandshakeResponse response(accepted, message);
     return response;
 }

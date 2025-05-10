@@ -10,6 +10,7 @@
 // Quest Sync includes
 #include "NetworkManager.h"
 #include "Config.h"
+#include "QuestStateTracker.h"
 
 IDebugLog		gLog("QuestSync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
@@ -85,6 +86,9 @@ _DecompileScript DecompileScript{};
 // With this, plugins can listen to messages such as whenever the game loads
 void MessageHandler(NVSEMessagingInterface::Message* msg)
 {
+	static int loopCounter = 0;
+	PlayerCharacter* player = NULL;
+
 	switch (msg->type)
 	{
 	case NVSEMessagingInterface::kMessage_PostLoad:
@@ -92,15 +96,23 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_ExitGame:
-		_MESSAGE("Exit game");
-		// Disconnect from server when exiting game
+		_MESSAGE("Exit game - Cleaning up network resources");
+		// First reset state to clear any pending messages
+		NetworkManager::GetInstance().Reset();
+		// Then disconnect from server when exiting game
 		NetworkManager::GetInstance().Disconnect();
+		// Sleep briefly to allow network threads to clean up
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		break;
 
 	case NVSEMessagingInterface::kMessage_ExitToMainMenu:
-		_MESSAGE("Exit to main menu");
-		// Disconnect from server when exiting to main menu
+		_MESSAGE("Exit to main menu - Cleaning up network resources");
+		// First reset state to clear any pending messages
+		NetworkManager::GetInstance().Reset();
+		// Then disconnect from server when exiting to main menu
 		NetworkManager::GetInstance().Disconnect();
+		// Sleep briefly to allow network threads to clean up
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		break;
 
 	case NVSEMessagingInterface::kMessage_LoadGame:
@@ -122,13 +134,19 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_ExitGame_Console:
-		_MESSAGE("Exit game via console");
-		// Disconnect from server when exiting game via console
+		_MESSAGE("Exit game via console - Cleaning up network resources");
+		// First reset state to clear any pending messages
+		NetworkManager::GetInstance().Reset();
+		// Then disconnect from server when exiting game via console
 		NetworkManager::GetInstance().Disconnect();
+		// Sleep briefly to allow network threads to clean up
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		break;
 
 	case NVSEMessagingInterface::kMessage_PostLoadGame:
 		_MESSAGE("Post-load game");
+		// Handle save game loading to ensure connection is stable before sending quest updates
+		NetworkManager::GetInstance().HandleSaveGameLoaded();
 		break;
 
 	case NVSEMessagingInterface::kMessage_PostPostLoad:
@@ -172,9 +190,12 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 
 		// Initialize and connect to the server
 		if (NetworkManager::GetInstance().Initialize(static_cast<const void*>(g_nvseInterface), g_consoleInterface)) {
+			_MESSAGE("NetworkManager initialized successfully, attempting to connect");
 			if (NetworkManager::GetInstance().Connect()) {
 				_MESSAGE("Connected to Quest Sync server");
-				// Notification is handled by NetworkManager now
+				// Check connection status again to verify
+				_MESSAGE("Connection status check: %s",
+					NetworkManager::GetInstance().IsConnected() ? "still connected" : "connection lost");
 			} else {
 				_MESSAGE("Failed to connect to Quest Sync server");
 				Console_Print("Failed to connect to the Quest Sync server. Will try to reconnect automatically.");
@@ -190,9 +211,21 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_MainGameLoop:
+		// Process network messages and update quest states
+		loopCounter++;
+
+		// Only log every 1000 frames to avoid log spam
+		if (loopCounter % 1000 == 0) {
+			_MESSAGE("Main game loop - Processing network messages (frame %d)", loopCounter);
+		}
+
 		// Process network messages
-		if (NetworkManager::GetInstance().IsConnected()) {
-			NetworkManager::GetInstance().ProcessMessages();
+		NetworkManager::GetInstance().ProcessMessages();
+
+		// Update quest states
+		player = PlayerCharacter::GetSingleton();
+		if (player) {
+			QuestStateTracker::GetInstance().UpdateQuestStates(player->questObjectiveList);
 		}
 		break;
 
@@ -201,7 +234,6 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_EventListDestroyed:
-		_MESSAGE("Event list destroyed");
 		break;
 
 	case NVSEMessagingInterface::kMessage_PostQueryPlugins:

@@ -23,7 +23,7 @@ using ConnectionStatusCallback = std::function<void(NetworkClient*, bool)>;
 
 /**
  * @brief TCP Network Client for Quest Sync
- * 
+ *
  * This class handles the network communication with the Quest Sync server.
  * It provides a clean interface for sending and receiving messages, with
  * automatic reconnection and version compatibility checking.
@@ -32,12 +32,12 @@ class NetworkClient {
 public:
     /**
      * @brief Constructor
-     * 
+     *
      * @param serverAddress The server IP address
      * @param serverPort The server port
      */
     NetworkClient(const std::string& serverAddress = "", int serverPort = 0);
-    
+
     /**
      * @brief Destructor
      */
@@ -45,14 +45,14 @@ public:
 
     /**
      * @brief Initialize the network client
-     * 
+     *
      * @return true if initialization was successful, false otherwise
      */
     bool Initialize();
 
     /**
      * @brief Connect to the server
-     * 
+     *
      * @return true if connection was successful, false otherwise
      */
     bool Connect();
@@ -69,14 +69,21 @@ public:
 
     /**
      * @brief Check if connected to the server
-     * 
+     *
      * @return true if connected, false otherwise
      */
     bool IsConnected() const;
 
     /**
+     * @brief Check if the client is initialized
+     *
+     * @return true if initialized, false otherwise
+     */
+    bool IsInitialized() const;
+
+    /**
      * @brief Send a message to the server
-     * 
+     *
      * @param message The message to send
      * @return true if the message was sent successfully, false otherwise
      */
@@ -84,7 +91,7 @@ public:
 
     /**
      * @brief Send a string message to the server
-     * 
+     *
      * @param type The message type
      * @param payload The message payload
      * @return true if the message was sent successfully, false otherwise
@@ -93,57 +100,64 @@ public:
 
     /**
      * @brief Get the next received message
-     * 
+     *
      * @return The next message, or nullptr if no messages are available
      */
     std::unique_ptr<Message> GetNextMessage();
 
     /**
      * @brief Set the server address
-     * 
+     *
      * @param address The server IP address
      */
     void SetServerAddress(const std::string& address);
 
     /**
      * @brief Set the server port
-     * 
+     *
      * @param port The server port
      */
     void SetServerPort(int port);
 
     /**
      * @brief Set the message received callback
-     * 
+     *
      * @param callback The callback function
      */
     void SetMessageReceivedCallback(MessageReceivedCallback callback);
 
     /**
      * @brief Set the connection status callback
-     * 
+     *
      * @param callback The callback function
      */
     void SetConnectionStatusCallback(ConnectionStatusCallback callback);
 
     /**
      * @brief Get the client version
-     * 
+     *
      * @return The client version as an array [major, minor]
      */
     std::array<int, 2> GetClientVersion() const;
 
     /**
      * @brief Set the client version
-     * 
+     *
      * @param major The major version number
      * @param minor The minor version number
      */
     void SetClientVersion(int major, int minor);
 
     /**
+     * @brief Enable or disable debug mode
+     *
+     * @param enable True to enable debug mode, false to disable
+     */
+    void SetDebugMode(bool enable);
+
+    /**
      * @brief Process any pending messages
-     * 
+     *
      * This method should be called regularly to process received messages
      * and handle reconnection attempts.
      */
@@ -153,30 +167,33 @@ private:
     // Server information
     std::string m_serverAddress;
     int m_serverPort;
-    
+
     // Socket and connection state
     SOCKET m_socket;
     std::atomic<bool> m_connected;
     std::atomic<bool> m_initialized;
     std::atomic<bool> m_handshakeCompleted;
-    
+
     // Client version
     std::array<int, 2> m_clientVersion;
-    
+
+    // Debug mode
+    bool m_debugMode;
+
     // Reconnection settings
     int m_reconnectInterval;
     int m_maxReconnectAttempts;
     int m_reconnectAttempts;
     std::chrono::steady_clock::time_point m_lastReconnectAttempt;
-    
+
     // Message queue and thread safety
     std::queue<std::unique_ptr<Message>> m_messageQueue;
     std::mutex m_queueMutex;
-    
+
     // Receive thread
     std::thread m_receiveThread;
     std::atomic<bool> m_threadRunning;
-    
+
     // Callbacks
     MessageReceivedCallback m_messageCallback;
     ConnectionStatusCallback m_connectionCallback;
@@ -185,7 +202,7 @@ private:
     void ReceiveThreadFunction();
     bool SendHandshake();
     bool ProcessHandshakeResponse(const Message& message);
-    bool ProcessReceivedData(const std::vector<uint8_t>& data);
+    bool ProcessReceivedData(std::vector<uint8_t>& data);
     void TryReconnect();
 };
 

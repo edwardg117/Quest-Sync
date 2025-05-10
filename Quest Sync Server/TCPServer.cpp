@@ -387,8 +387,17 @@ void TCPServer::DisconnectClient(SOCKET clientSocket) {
 
 // Process a handshake request
 void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& request) {
+    // Log client version
+    LOG_INFO("Processing handshake from client " + std::to_string(clientSocket) +
+             ", version: " + Version::VersionToString(request.clientVersion));
+
     // Check if the client version is compatible
     bool accepted = Version::IsCompatible(request.clientVersion);
+
+    LOG_INFO("Client version compatibility check: " + std::string(accepted ? "COMPATIBLE" : "INCOMPATIBLE"));
+    LOG_INFO("Server version: " + Version::VersionToString(Version::ServerVersion) +
+             ", supported client versions: " + Version::VersionToString(Version::MinClientVersion) +
+             " to " + Version::VersionToString(Version::MaxClientVersion));
 
     // Prepare the response message
     std::string message;
@@ -407,10 +416,31 @@ void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& re
     // Create the handshake response
     HandshakeResponse response(accepted, message);
 
+    // Log the response
+    LOG_INFO("Handshake response: " + std::string(accepted ? "ACCEPTED" : "REJECTED") +
+             ", message: " + message);
+
     // Create and send the message
     Message responseMsg(MessageType::HANDSHAKE_RESPONSE);
-    responseMsg.SetPayload(response.Serialize());
-    SendToClient(clientSocket, responseMsg);
+    std::vector<uint8_t> payload = response.Serialize();
+    responseMsg.SetPayload(payload);
+
+    // Log the full message
+    std::vector<uint8_t> fullMessage = responseMsg.Serialize();
+    std::string fullMessageHex;
+    for (size_t i = 0; i < fullMessage.size() && i < 128; ++i) {
+        char hex[8];
+        sprintf_s(hex, "%02X ", fullMessage[i]);
+        fullMessageHex += hex;
+    }
+    if (fullMessage.size() > 128) {
+        fullMessageHex += "...";
+    }
+    LOG_DEBUG("Full handshake response message (hex): " + fullMessageHex);
+
+    // Send the response
+    bool sendResult = SendToClient(clientSocket, responseMsg);
+    LOG_INFO("Handshake response send result: " + std::string(sendResult ? "SUCCESS" : "FAILURE"));
 
     // Update the client's authentication status
     if (accepted) {

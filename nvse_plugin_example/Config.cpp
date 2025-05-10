@@ -24,6 +24,8 @@ void Config::InitializeDefaultConfig() {
     m_config["Network.ServerPort"] = "25575";
     m_config["Network.ReconnectInterval"] = "60"; // Seconds
     m_config["Network.MaxReconnectAttempts"] = "5";
+    m_config["Network.ConnectionTimeout"] = "5"; // Seconds
+    m_config["Network.DebugMode"] = "false";
 
     // Client settings
     m_config["Client.Version"] = "1.0";
@@ -33,7 +35,7 @@ void Config::InitializeDefaultConfig() {
 // Load configuration from a file
 bool Config::Load(const void* nvseInterface, const std::string& filename) {
     NVSEInterface* nvse = (NVSEInterface*)nvseInterface;
-    
+
     // Get full path to ini file
     m_fullPath = std::string(nvse->GetRuntimeDirectory()) + "/Data/NVSE/Plugins/" + filename;
     m_filename = filename;
@@ -55,6 +57,8 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
         defaultConfig["Network.ServerPort"] = "25575";
         defaultConfig["Network.ReconnectInterval"] = "60"; // Seconds
         defaultConfig["Network.MaxReconnectAttempts"] = "5";
+        defaultConfig["Network.ConnectionTimeout"] = "5"; // Seconds
+        defaultConfig["Network.DebugMode"] = "false";
 
         // Client settings
         defaultConfig["Client.Version"] = "1.0";
@@ -84,7 +88,7 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
         // Write each section
         for (const auto& section : sections) {
             file << "[" << section.first << "]" << std::endl;
-            
+
             for (const auto& pair : section.second) {
                 // Add comments for each setting
                 if (section.first == "Network") {
@@ -99,6 +103,12 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
                     }
                     else if (pair.first == "MaxReconnectAttempts") {
                         file << "# Maximum number of reconnection attempts" << std::endl;
+                    }
+                    else if (pair.first == "ConnectionTimeout") {
+                        file << "# Connection timeout in seconds" << std::endl;
+                    }
+                    else if (pair.first == "DebugMode") {
+                        file << "# Enable debug mode for detailed logging (true/false)" << std::endl;
                     }
                 }
                 else if (section.first == "Client") {
@@ -160,7 +170,7 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
         if (delimPos != std::string::npos) {
             std::string key = line.substr(0, delimPos);
             std::string value = line.substr(delimPos + 1);
-            
+
             // Trim key and value
             Trim(key);
             Trim(value);
@@ -187,6 +197,8 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
     defaultConfig["Network.ServerPort"] = "25575";
     defaultConfig["Network.ReconnectInterval"] = "60"; // Seconds
     defaultConfig["Network.MaxReconnectAttempts"] = "5";
+    defaultConfig["Network.ConnectionTimeout"] = "5"; // Seconds
+    defaultConfig["Network.DebugMode"] = "false";
 
     // Client settings
     defaultConfig["Client.Version"] = "1.0";
@@ -213,7 +225,6 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
 
     return true;
 }
-
 // Save configuration to the current file
 bool Config::Save() {
     if (m_fullPath.empty()) {
@@ -261,7 +272,7 @@ bool Config::Save() {
         // Skip empty section name for now
         if (!section.first.empty()) {
             file << "[" << section.first << "]" << std::endl;
-            
+
             for (const auto& pair : section.second) {
                 // Add comments for each setting
                 if (section.first == "Network") {
@@ -276,6 +287,12 @@ bool Config::Save() {
                     }
                     else if (pair.first == "MaxReconnectAttempts") {
                         file << "# Maximum number of reconnection attempts" << std::endl;
+                    }
+                    else if (pair.first == "ConnectionTimeout") {
+                        file << "# Connection timeout in seconds" << std::endl;
+                    }
+                    else if (pair.first == "DebugMode") {
+                        file << "# Enable debug mode for detailed logging (true/false)" << std::endl;
                     }
                 }
                 else if (section.first == "Client") {
@@ -324,7 +341,7 @@ int Config::GetInt(const std::string& key, int defaultValue) {
     if (strValue.empty()) {
         return defaultValue;
     }
-    
+
     try {
         return std::stoi(strValue);
     }
@@ -339,21 +356,21 @@ bool Config::GetBool(const std::string& key, bool defaultValue) {
     if (strValue.empty()) {
         return defaultValue;
     }
-    
+
     // Convert to lowercase
-    std::transform(strValue.begin(), strValue.end(), strValue.begin(), 
+    std::transform(strValue.begin(), strValue.end(), strValue.begin(),
         [](unsigned char c) { return std::tolower(c); });
-    
+
     // Check for true values
     if (strValue == "true" || strValue == "yes" || strValue == "1" || strValue == "on") {
         return true;
     }
-    
+
     // Check for false values
     if (strValue == "false" || strValue == "no" || strValue == "0" || strValue == "off") {
         return false;
     }
-    
+
     return defaultValue;
 }
 
@@ -379,7 +396,7 @@ void Config::Trim(std::string& str) {
     str.erase(str.begin(), std::find_if(str.begin(), str.end(), [](unsigned char ch) {
         return !std::isspace(ch);
     }));
-    
+
     // Trim trailing whitespace
     str.erase(std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
         return !std::isspace(ch);

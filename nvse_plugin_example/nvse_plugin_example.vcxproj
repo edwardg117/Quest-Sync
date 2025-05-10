@@ -291,6 +291,10 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release GECK|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug GECK|Win32'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="QuestStateTracker.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release GECK|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug GECK|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\nvse\nvse\GameData.cpp" />
     <ClCompile Include="..\nvse\nvse\GameExtraData.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release GECK|Win32'">true</ExcludedFromBuild>
@@ -378,6 +382,8 @@
     <ClInclude Include="Message.h" />
     <ClInclude Include="NetworkClient.h" />
     <ClInclude Include="NetworkManager.h" />
+    <ClInclude Include="QuestManager.h" />
+    <ClInclude Include="QuestStateTracker.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="exports.def" />

@@ -1,4 +1,5 @@
 #include "Message.h"
+#include "Logger.h"
 #include <cstring>
 #include <stdexcept>
 
@@ -140,6 +141,20 @@ std::vector<uint8_t> HandshakeResponse::Serialize() const {
     if (!message.empty()) {
         std::copy(message.begin(), message.end(), result.begin() + sizeof(bool) + sizeof(uint32_t));
     }
+
+    // Log the serialized data for debugging
+    std::string dataHex;
+    for (size_t i = 0; i < result.size() && i < 64; ++i) {
+        char hex[8];
+        sprintf_s(hex, "%02X ", result[i]);
+        dataHex += hex;
+    }
+    if (result.size() > 64) {
+        dataHex += "...";
+    }
+    LOG_DEBUG("HandshakeResponse::Serialize - Data (hex): " + dataHex);
+    LOG_DEBUG("HandshakeResponse::Serialize - Accepted: " + std::string(accepted ? "true" : "false") +
+              ", Message: " + message);
 
     return result;
 }
