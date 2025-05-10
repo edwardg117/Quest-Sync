@@ -211,21 +211,24 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_MainGameLoop:
-		// Process network messages and update quest states
-		loopCounter++;
+		{
+			// Process network messages and update quest states
+			loopCounter++;
 
-		// Only log every 1000 frames to avoid log spam
-		if (loopCounter % 1000 == 0) {
-			_MESSAGE("Main game loop - Processing network messages (frame %d)", loopCounter);
-		}
+			// Only log every 1000 frames to avoid log spam, and only if debug mode is enabled
+			NetworkClient* client = NetworkManager::GetInstance().GetClient();
+			if (client && client->IsDebugMode() && loopCounter % 1000 == 0) {
+				_MESSAGE("Main game loop - Processing network messages (frame %d)", loopCounter);
+			}
 
-		// Process network messages
-		NetworkManager::GetInstance().ProcessMessages();
+			// Process network messages
+			NetworkManager::GetInstance().ProcessMessages();
 
-		// Update quest states
-		player = PlayerCharacter::GetSingleton();
-		if (player) {
-			QuestStateTracker::GetInstance().UpdateQuestStates(player->questObjectiveList);
+			// Update quest states
+			player = PlayerCharacter::GetSingleton();
+			if (player) {
+				QuestStateTracker::GetInstance().UpdateQuestStates(player->questObjectiveList);
+			}
 		}
 		break;
 

@@ -55,12 +55,13 @@ struct QuestState {
     bool completed;
     bool failed;
     UInt32 rawFlags;  // Add this field to store the original flags
+    UInt32 currentStage; // Add current stage tracking
     std::unordered_map<UInt32, ObjectiveState> objectives;
 
-    QuestState() : questId(0), questName(""), active(false), completed(false), failed(false), rawFlags(0) {}
+    QuestState() : questId(0), questName(""), active(false), completed(false), failed(false), rawFlags(0), currentStage(0) {}
 
-    QuestState(UInt32 id, const std::string& name, bool isActive, bool isCompleted, bool isFailed, UInt32 flags = 0)
-        : questId(id), questName(name), active(isActive), completed(isCompleted), failed(isFailed), rawFlags(flags) {}
+    QuestState(UInt32 id, const std::string& name, bool isActive, bool isCompleted, bool isFailed, UInt32 flags = 0, UInt32 stage = 0)
+        : questId(id), questName(name), active(isActive), completed(isCompleted), failed(isFailed), rawFlags(flags), currentStage(stage) {}
 
     // Equality operator for comparing states
     bool operator==(const QuestState& other) const {
@@ -69,6 +70,7 @@ struct QuestState {
                completed == other.completed &&
                failed == other.failed &&
                rawFlags == other.rawFlags &&
+               currentStage == other.currentStage &&
                objectives == other.objectives;
     }
 
@@ -196,6 +198,7 @@ private:
 };
 
 #endif // QUEST_STATE_TRACKER_H
+
 
 
 

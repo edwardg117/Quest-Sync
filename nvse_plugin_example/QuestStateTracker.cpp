@@ -483,7 +483,7 @@ bool QuestStateTracker::SendQuestUpdate(const QuestState& questState) {
     std::map<std::string, std::string> payload;
     payload["ID"] = QuestIdToHexString(questState.questId);
     payload["Name"] = questState.questName;
-    payload["Stage"] = "";
+    payload["Stage"] = std::to_string(questState.currentStage);  // Include the current stage
 
     // Convert the raw flags to a hex string
     std::stringstream flagsStream;
@@ -569,8 +569,9 @@ QuestState QuestStateTracker::CreateQuestStateFromGameQuest(TESQuest* quest) {
     bool active = (quest->flags & 1) == 1;
     bool completed = (quest->flags & 2) == 2;
     bool failed = (quest->flags & 64) == 64;
+    UInt32 currentStage = quest->currentStage;
 
-    return QuestState(quest->refID, name, active, completed, failed, quest->flags);
+    return QuestState(quest->refID, name, active, completed, failed, quest->flags, currentStage);
 }
 
 // Create objective state from game objective
@@ -610,6 +611,12 @@ bool QuestStateTracker::FailQuest(const std::string& questId) {
     std::string command = "FailQuest " + questId;
     return ExecuteConsoleCommand(command);
 }
+
+
+
+
+
+
 
 
 

@@ -13,7 +13,7 @@ NetworkClient::NetworkClient(const std::string& serverAddress, int serverPort)
       m_initialized(false),
       m_handshakeCompleted(false),
       m_clientVersion{1, 0},
-      m_debugMode(true),
+      m_debugMode(false),  // Default to false for release builds
       m_reconnectInterval(60),
       m_maxReconnectAttempts(5),
       m_reconnectAttempts(0),
@@ -69,7 +69,7 @@ bool NetworkClient::Connect() {
                 return false;
             }
         }
-        
+
         // Log memory sizes for debugging
         _MESSAGE("NetworkClient::Connect - Size of bool: %u bytes", sizeof(bool));
         _MESSAGE("NetworkClient::Connect - Size of uint32_t: %u bytes", sizeof(uint32_t));
@@ -184,26 +184,26 @@ bool NetworkClient::Connect() {
     }
     catch (const std::exception& e) {
         _MESSAGE("NetworkClient::Connect - Exception during connect: %s", e.what());
-        
+
         // Clean up resources
         if (m_socket != INVALID_SOCKET) {
             closesocket(m_socket);
             m_socket = INVALID_SOCKET;
         }
         m_connected = false;
-        
+
         return false;
     }
     catch (...) {
         _MESSAGE("NetworkClient::Connect - Unknown exception during connect");
-        
+
         // Clean up resources
         if (m_socket != INVALID_SOCKET) {
             closesocket(m_socket);
             m_socket = INVALID_SOCKET;
         }
         m_connected = false;
-        
+
         return false;
     }
 }
@@ -382,9 +382,9 @@ void NetworkClient::Cleanup() {
 
 // Check if connected to the server
 bool NetworkClient::IsConnected() const {
-    // Only log occasionally to avoid filling the log file
+    // Only log occasionally to avoid filling the log file, and only in debug mode
     static int logCounter = 0;
-    if (logCounter++ % 1000 == 0) {
+    if (m_debugMode && logCounter++ % 1000 == 0) {
         _MESSAGE("NetworkClient::IsConnected - Status: %s", m_connected ? "connected" : "not connected");
     }
     return m_connected;
@@ -398,6 +398,7 @@ bool NetworkClient::IsInitialized() const {
 // Send a message to the server
 bool NetworkClient::SendMessage(const Message& message) {
     if (!m_connected) {
+        // Always log connection errors
         _MESSAGE("NetworkClient::SendMessage - Not connected, cannot send message");
         return false;
     }
@@ -405,7 +406,7 @@ bool NetworkClient::SendMessage(const Message& message) {
     // Serialize message
     std::vector<uint8_t> data = message.Serialize();
 
-    // Log message details
+    // Log message details only in debug mode
     if (m_debugMode) {
         _MESSAGE("NetworkClient::SendMessage - Sending message type %d, size %u bytes",
                  static_cast<int>(message.GetType()), data.size());
@@ -421,14 +422,17 @@ bool NetworkClient::SendMessage(const Message& message) {
             dataHex += "...";
         }
         _MESSAGE("NetworkClient::SendMessage - Data (hex): %s", dataHex.c_str());
+
+        // Log sending details
+        _MESSAGE("NetworkClient::SendMessage - Sending %u bytes to socket", data.size());
     }
 
     // Send data
-    _MESSAGE("NetworkClient::SendMessage - Sending %u bytes to socket", data.size());
     int bytesSent = send(m_socket, reinterpret_cast<const char*>(data.data()), static_cast<int>(data.size()), 0);
 
     if (bytesSent == SOCKET_ERROR) {
         int error = WSAGetLastError();
+        // Always log errors
         _MESSAGE("NetworkClient::SendMessage - Send error: %d", error);
 
         if (error != WSAEWOULDBLOCK) {
@@ -438,19 +442,26 @@ bool NetworkClient::SendMessage(const Message& message) {
         }
 
         // Would block, try again later
-        _MESSAGE("NetworkClient::SendMessage - Would block, try again later");
+        if (m_debugMode) {
+            _MESSAGE("NetworkClient::SendMessage - Would block, try again later");
+        }
         return false;
     }
 
-    _MESSAGE("NetworkClient::SendMessage - Successfully sent %d bytes", bytesSent);
+    if (m_debugMode) {
+        _MESSAGE("NetworkClient::SendMessage - Successfully sent %d bytes", bytesSent);
+    }
     return true;
 }
 
 // Send a string message to the server
 bool NetworkClient::SendMessage(MessageType type, const std::string& payload) {
-    _MESSAGE("NetworkClient::SendMessage - Type: %d, Payload: %s", static_cast<int>(type), payload.c_str());
+    if (m_debugMode) {
+        _MESSAGE("NetworkClient::SendMessage - Type: %d, Payload: %s", static_cast<int>(type), payload.c_str());
+    }
 
     if (!IsConnected()) {
+        // Always log connection errors
         _MESSAGE("NetworkClient: Cannot send message, not connected");
         return false;
     }
@@ -462,19 +473,23 @@ bool NetworkClient::SendMessage(MessageType type, const std::string& payload) {
         // Send the binary message
         bool result = SendMessage(message);
 
-        if (result) {
-            _MESSAGE("NetworkClient: Message send successful");
-        } else {
-            _MESSAGE("NetworkClient: Message send failed");
+        if (m_debugMode) {
+            if (result) {
+                _MESSAGE("NetworkClient: Message send successful");
+            } else {
+                _MESSAGE("NetworkClient: Message send failed");
+            }
         }
 
         return result;
     }
     catch (const std::exception& e) {
+        // Always log errors
         _MESSAGE("NetworkClient: Exception during send: %s", e.what());
         return false;
     }
     catch (...) {
+        // Always log errors
         _MESSAGE("NetworkClient: Unknown exception during send");
         return false;
     }
@@ -535,6 +550,11 @@ void NetworkClient::SetDebugMode(bool enable) {
     _MESSAGE("NetworkClient::SetDebugMode - Debug mode %s", enable ? "enabled" : "disabled");
 }
 
+// Check if debug mode is enabled
+bool NetworkClient::IsDebugMode() const {
+    return m_debugMode;
+}
+
 // Process any pending messages
 void NetworkClient::ProcessMessages() {
     // Check if we need to reconnect
@@ -550,12 +570,15 @@ void NetworkClient::ProcessMessages() {
             break;
         }
 
-        // Log message details
-        _MESSAGE("NetworkClient::ProcessMessages - Processing message type %d, size %u bytes",
-                 static_cast<int>(message->GetType()), message->GetPayloadSize());
+        // Log message details only in debug mode
+        if (m_debugMode) {
+            _MESSAGE("NetworkClient::ProcessMessages - Processing message type %d, size %u bytes",
+                     static_cast<int>(message->GetType()), message->GetPayloadSize());
+        }
 
         // Handle system messages
         if (message->GetType() == MessageType::HANDSHAKE_RESPONSE) {
+            // Always log important connection events
             _MESSAGE("NetworkClient::ProcessMessages - Received handshake response");
             bool result = ProcessHandshakeResponse(*message);
             _MESSAGE("NetworkClient::ProcessMessages - Handshake processing result: %s",
@@ -563,12 +586,16 @@ void NetworkClient::ProcessMessages() {
             continue;
         }
         else if (message->GetType() == MessageType::DISCONNECT) {
+            // Always log important connection events
             _MESSAGE("NetworkClient::ProcessMessages - Received disconnect message");
             Disconnect();
             break;
         }
         else if (message->GetType() == MessageType::HEARTBEAT) {
-            _MESSAGE("NetworkClient::ProcessMessages - Received heartbeat, responding");
+            // Log heartbeats only in debug mode
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessMessages - Received heartbeat, responding");
+            }
             // Respond to heartbeat
             SendMessage(MessageType::HEARTBEAT, "");
             continue;
@@ -576,22 +603,30 @@ void NetworkClient::ProcessMessages() {
 
         // Notify message received
         if (m_messageCallback && m_handshakeCompleted) {
-            _MESSAGE("NetworkClient::ProcessMessages - Forwarding message to callback");
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessMessages - Forwarding message to callback");
+            }
             try {
                 m_messageCallback(this, *message);
             }
             catch (const std::exception& e) {
+                // Always log errors
                 _MESSAGE("NetworkClient::ProcessMessages - Exception in message callback: %s", e.what());
             }
             catch (...) {
+                // Always log errors
                 _MESSAGE("NetworkClient::ProcessMessages - Unknown exception in message callback");
             }
         }
         else if (!m_handshakeCompleted) {
-            _MESSAGE("NetworkClient::ProcessMessages - Ignoring message, handshake not completed");
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessMessages - Ignoring message, handshake not completed");
+            }
         }
         else if (!m_messageCallback) {
-            _MESSAGE("NetworkClient::ProcessMessages - Ignoring message, no callback registered");
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessMessages - Ignoring message, no callback registered");
+            }
         }
     }
 }
@@ -602,7 +637,7 @@ void NetworkClient::ReceiveThreadFunction() {
 
     // Buffer for receiving data
     char buffer[BUFFER_SIZE];
-    
+
     // Track consecutive errors to avoid log spam
     int consecutiveErrors = 0;
     const int MAX_CONSECUTIVE_ERRORS = 10;
@@ -630,17 +665,19 @@ void NetworkClient::ReceiveThreadFunction() {
                 // Add a small delay to prevent CPU hogging
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-                // Log the raw received data
-                std::string rawDataHex;
-                for (int i = 0; i < bytesReceived && i < 64; ++i) {
-                    char hex[8];
-                    sprintf_s(hex, "%02X ", buffer[i]);
-                    rawDataHex += hex;
+                // Log the raw received data only in debug mode
+                if (m_debugMode) {
+                    std::string rawDataHex;
+                    for (int i = 0; i < bytesReceived && i < 64; ++i) {
+                        char hex[8];
+                        sprintf_s(hex, "%02X ", buffer[i]);
+                        rawDataHex += hex;
+                    }
+                    if (bytesReceived > 64) {
+                        rawDataHex += "...";
+                    }
+                    _MESSAGE("NetworkClient::ReceiveThreadFunction - Raw received data (hex): %s", rawDataHex.c_str());
                 }
-                if (bytesReceived > 64) {
-                    rawDataHex += "...";
-                }
-                _MESSAGE("NetworkClient::ReceiveThreadFunction - Raw received data (hex): %s", rawDataHex.c_str());
 
                 // Process received data
                 if (!ProcessReceivedData(buffer, bytesReceived)) {
@@ -946,50 +983,59 @@ bool NetworkClient::ProcessReceivedData(char* buffer, int bytesReceived) {
 bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
     size_t processedBytes = 0;
 
-    // Log the received data
-    _MESSAGE("NetworkClient::ProcessReceivedData - Processing %u bytes of data", data.size());
+    // Log the received data only in debug mode
+    if (m_debugMode) {
+        _MESSAGE("NetworkClient::ProcessReceivedData - Processing %u bytes of data", data.size());
 
-    // Dump the raw received data for debugging
-    std::string dataHex;
-    for (size_t i = 0; i < data.size() && i < 128; ++i) {
-        char hex[8];
-        sprintf_s(hex, "%02X ", data[i]);
-        dataHex += hex;
+        // Dump the raw received data for debugging
+        std::string dataHex;
+        for (size_t i = 0; i < data.size() && i < 128; ++i) {
+            char hex[8];
+            sprintf_s(hex, "%02X ", data[i]);
+            dataHex += hex;
+        }
+        if (data.size() > 128) {
+            dataHex += "...";
+        }
+        _MESSAGE("NetworkClient::ProcessReceivedData - Raw data (hex): %s", dataHex.c_str());
     }
-    if (data.size() > 128) {
-        dataHex += "...";
-    }
-    _MESSAGE("NetworkClient::ProcessReceivedData - Raw data (hex): %s", dataHex.c_str());
 
     try {
         while (processedBytes < data.size()) {
             // Check if we have enough data for a header
             if (data.size() - processedBytes < sizeof(MessageHeader)) {
-                _MESSAGE("NetworkClient::ProcessReceivedData - Not enough data for header, need %u bytes, have %u bytes",
-                         sizeof(MessageHeader), data.size() - processedBytes);
+                if (m_debugMode) {
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Not enough data for header, need %u bytes, have %u bytes",
+                             sizeof(MessageHeader), data.size() - processedBytes);
+                }
                 break;
             }
 
             // Get header
             const MessageHeader* header = reinterpret_cast<const MessageHeader*>(data.data() + processedBytes);
 
-            // Log header details
-            _MESSAGE("NetworkClient::ProcessReceivedData - Message header: type=%d, payloadSize=%u",
-                     static_cast<int>(header->type), header->payloadSize);
+            // Log header details only in debug mode
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessReceivedData - Message header: type=%d, payloadSize=%u",
+                         static_cast<int>(header->type), header->payloadSize);
+            }
 
             // Validate message type to ensure it's within the valid range
             int messageType = static_cast<int>(header->type);
             if (messageType < 0 || messageType > static_cast<int>(MessageType::RESERVED)) {
+                // Always log validation errors
                 _MESSAGE("NetworkClient::ProcessReceivedData - Invalid message type: %d", messageType);
 
-                // Dump the header bytes for debugging
-                std::string headerHex;
-                for (size_t i = 0; i < sizeof(MessageHeader) && i + processedBytes < data.size(); ++i) {
-                    char hex[8];
-                    sprintf_s(hex, "%02X ", data[processedBytes + i]);
-                    headerHex += hex;
+                if (m_debugMode) {
+                    // Dump the header bytes for debugging only in debug mode
+                    std::string headerHex;
+                    for (size_t i = 0; i < sizeof(MessageHeader) && i + processedBytes < data.size(); ++i) {
+                        char hex[8];
+                        sprintf_s(hex, "%02X ", data[processedBytes + i]);
+                        headerHex += hex;
+                    }
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Invalid header bytes: %s", headerHex.c_str());
                 }
-                _MESSAGE("NetworkClient::ProcessReceivedData - Invalid header bytes: %s", headerHex.c_str());
 
                 // Skip this header and try to find a valid one
                 processedBytes += sizeof(MessageHeader);
@@ -998,6 +1044,7 @@ bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
 
             // Validate payload size to prevent excessive memory allocation
             if (header->payloadSize > 1024 * 1024) { // 1MB max payload size
+                // Always log validation errors
                 _MESSAGE("NetworkClient::ProcessReceivedData - Payload size too large: %u bytes", header->payloadSize);
                 // Skip this header and try to find a valid one
                 processedBytes += sizeof(MessageHeader);
@@ -1007,65 +1054,80 @@ bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
             // Check if we have the full message
             size_t messageSize = sizeof(MessageHeader) + header->payloadSize;
             if (data.size() - processedBytes < messageSize) {
-                _MESSAGE("NetworkClient::ProcessReceivedData - Incomplete message, need %u bytes, have %u bytes",
-                         messageSize, data.size() - processedBytes);
+                if (m_debugMode) {
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Incomplete message, need %u bytes, have %u bytes",
+                             messageSize, data.size() - processedBytes);
+                }
                 break;
             }
 
-            // Log the full message
-            _MESSAGE("NetworkClient::ProcessReceivedData - Full message size: %u bytes", messageSize);
-            std::string messageHex;
-            for (size_t i = 0; i < messageSize && i + processedBytes < data.size(); ++i) {
-                char hex[8];
-                sprintf_s(hex, "%02X ", data[processedBytes + i]);
-                messageHex += hex;
+            // Log the full message only in debug mode
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessReceivedData - Full message size: %u bytes", messageSize);
+                std::string messageHex;
+                for (size_t i = 0; i < messageSize && i + processedBytes < data.size(); ++i) {
+                    char hex[8];
+                    sprintf_s(hex, "%02X ", data[processedBytes + i]);
+                    messageHex += hex;
+                }
+                _MESSAGE("NetworkClient::ProcessReceivedData - Full message (hex): %s", messageHex.c_str());
             }
-            _MESSAGE("NetworkClient::ProcessReceivedData - Full message (hex): %s", messageHex.c_str());
 
             try {
                 // Deserialize message
-                _MESSAGE("NetworkClient::ProcessReceivedData - Deserializing message");
+                if (m_debugMode) {
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Deserializing message");
+                }
                 std::unique_ptr<Message> message = Message::Deserialize(data.data() + processedBytes, messageSize);
 
-                // Log payload details
-                const std::vector<uint8_t>& payload = message->GetPayload();
-                _MESSAGE("NetworkClient::ProcessReceivedData - Deserialized message: type=%d, payloadSize=%u",
-                         static_cast<int>(message->GetType()), payload.size());
+                // Log payload details only in debug mode
+                if (m_debugMode) {
+                    const std::vector<uint8_t>& payload = message->GetPayload();
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Deserialized message: type=%d, payloadSize=%u",
+                             static_cast<int>(message->GetType()), payload.size());
 
-                std::string payloadHex;
-                for (size_t i = 0; i < payload.size() && i < 64; ++i) {
-                    char hex[8];
-                    sprintf_s(hex, "%02X ", payload[i]);
-                    payloadHex += hex;
+                    std::string payloadHex;
+                    for (size_t i = 0; i < payload.size() && i < 64; ++i) {
+                        char hex[8];
+                        sprintf_s(hex, "%02X ", payload[i]);
+                        payloadHex += hex;
+                    }
+                    if (payload.size() > 64) {
+                        payloadHex += "...";
+                    }
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Payload (hex): %s", payloadHex.c_str());
                 }
-                if (payload.size() > 64) {
-                    payloadHex += "...";
-                }
-                _MESSAGE("NetworkClient::ProcessReceivedData - Payload (hex): %s", payloadHex.c_str());
 
                 // Add message to queue
                 {
                     std::lock_guard<std::mutex> lock(m_queueMutex);
-                    _MESSAGE("NetworkClient::ProcessReceivedData - Adding message to queue");
+                    if (m_debugMode) {
+                        _MESSAGE("NetworkClient::ProcessReceivedData - Adding message to queue");
+                    }
                     m_messageQueue.push(std::move(message));
                 }
 
-                _MESSAGE("NetworkClient::ProcessReceivedData - Successfully processed message type %d", static_cast<int>(header->type));
+                if (m_debugMode) {
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Successfully processed message type %d", static_cast<int>(header->type));
+                }
 
                 // Update processed bytes
                 processedBytes += messageSize;
             }
             catch (const std::exception& e) {
+                // Always log deserialization errors
                 _MESSAGE("NetworkClient::ProcessReceivedData - Error deserializing message: %s", e.what());
 
-                // Dump the message bytes for debugging
-                std::string errorMessageHex;
-                for (size_t i = 0; i < messageSize && i + processedBytes < data.size(); ++i) {
-                    char hex[8];
-                    sprintf_s(hex, "%02X ", data[processedBytes + i]);
-                    errorMessageHex += hex;
+                // Dump the message bytes for debugging only in debug mode
+                if (m_debugMode) {
+                    std::string errorMessageHex;
+                    for (size_t i = 0; i < messageSize && i + processedBytes < data.size(); ++i) {
+                        char hex[8];
+                        sprintf_s(hex, "%02X ", data[processedBytes + i]);
+                        errorMessageHex += hex;
+                    }
+                    _MESSAGE("NetworkClient::ProcessReceivedData - Error message bytes: %s", errorMessageHex.c_str());
                 }
-                _MESSAGE("NetworkClient::ProcessReceivedData - Error message bytes: %s", errorMessageHex.c_str());
 
                 // Skip this message and try to find the next one
                 processedBytes += sizeof(MessageHeader);
@@ -1074,9 +1136,13 @@ bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
 
         // Remove processed bytes from buffer
         if (processedBytes > 0) {
-            _MESSAGE("NetworkClient::ProcessReceivedData - Removing %u processed bytes from buffer", processedBytes);
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessReceivedData - Removing %u processed bytes from buffer", processedBytes);
+            }
             data.erase(data.begin(), data.begin() + processedBytes);
-            _MESSAGE("NetworkClient::ProcessReceivedData - Remaining buffer size: %u bytes", data.size());
+            if (m_debugMode) {
+                _MESSAGE("NetworkClient::ProcessReceivedData - Remaining buffer size: %u bytes", data.size());
+            }
         }
 
         return true;

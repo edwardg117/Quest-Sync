@@ -159,6 +159,13 @@ public:
     void SetDebugMode(bool enable);
 
     /**
+     * @brief Check if debug mode is enabled
+     *
+     * @return true if debug mode is enabled, false otherwise
+     */
+    bool IsDebugMode() const;
+
+    /**
      * @brief Process any pending messages
      *
      * This method should be called regularly to process received messages

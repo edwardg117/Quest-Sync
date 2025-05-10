@@ -16,8 +16,8 @@ NetworkManager& NetworkManager::GetInstance() {
 NetworkManager::NetworkManager()
     : m_initialized(false),
       m_consoleInterface(nullptr),
-      m_questStateTracker(nullptr) {
-    m_client = std::make_unique<NetworkClient>();
+      m_questStateTracker(nullptr),
+      m_client(nullptr) {
 }
 
 // Initialize the network manager
@@ -79,6 +79,7 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
             m_client->SetDebugMode(true);
         } else {
             _MESSAGE("NetworkManager::Initialize - Debug mode disabled");
+            m_client->SetDebugMode(false); // Explicitly set to false
         }
 
         // Set connection callback
@@ -249,9 +250,9 @@ void NetworkManager::Disconnect() {
 bool NetworkManager::IsConnected() const {
     bool connected = m_client && m_client->IsConnected();
 
-    // Only log occasionally to avoid filling the log file
+    // Only log occasionally to avoid filling the log file, and only if client is in debug mode
     static int logCounter = 0;
-    if (logCounter++ % 1000 == 0) {
+    if (m_client && m_client->IsDebugMode() && logCounter++ % 1000 == 0) {
         _MESSAGE("NetworkManager::IsConnected - Status: %s", connected ? "connected" : "not connected");
     }
 
@@ -263,8 +264,8 @@ void NetworkManager::ProcessMessages() {
     static int counter = 0;
     counter++;
 
-    // Only log every 1000 frames to avoid log spam
-    bool shouldLog = (counter % 1000 == 0);
+    // Only log every 1000 frames to avoid log spam, and only if debug mode is enabled
+    bool shouldLog = (counter % 1000 == 0) && (m_client && m_client->IsDebugMode());
 
     if (!m_initialized) {
         if (shouldLog) {
@@ -366,8 +367,8 @@ void NetworkManager::ProcessQueuedMessages() {
 
     // Check connection status first
     if (!IsConnected()) {
-        // Only log disconnected state occasionally
-        if (logCounter++ % 1000 == 0) {
+        // Only log disconnected state occasionally and only in debug mode
+        if (m_client && m_client->IsDebugMode() && logCounter++ % 1000 == 0) {
             _MESSAGE("NetworkManager::ProcessQueuedMessages - Not connected, cannot process messages");
         }
         return;
@@ -375,8 +376,8 @@ void NetworkManager::ProcessQueuedMessages() {
 
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
-    // Only log when there are messages or occasionally
-    if (!m_messageQueue.empty() || logCounter++ % 1000 == 0) {
+    // Only log when there are messages or occasionally, and only in debug mode
+    if (m_client && m_client->IsDebugMode() && (!m_messageQueue.empty() || logCounter++ % 1000 == 0)) {
         shouldLog = true;
     }
 
@@ -473,9 +474,10 @@ bool NetworkManager::SendMessage(MessageType type, const std::string& payload) {
 
 // Queue a message to be sent to the server
 void NetworkManager::QueueMessage(MessageType type, const std::string& payload) {
-    // Only log important message types or occasionally
+    // Only log important message types or occasionally, and only in debug mode
     static int logCounter = 0;
-    bool shouldLog = (type == MessageType::ERROR_MESSAGE ||
+    bool shouldLog = m_client && m_client->IsDebugMode() &&
+                    (type == MessageType::ERROR_MESSAGE ||
                      type == MessageType::HANDSHAKE_REQUEST ||
                      type == MessageType::HANDSHAKE_RESPONSE ||
                      logCounter++ % 100 == 0);
@@ -519,11 +521,11 @@ void NetworkManager::HandleSaveGameLoaded() {
     // Check if we're already connected
     if (m_client && m_client->IsConnected()) {
         _MESSAGE("NetworkManager::HandleSaveGameLoaded - Already connected, sending heartbeat to verify connection");
-        
+
         // Send a heartbeat to verify the connection is still valid
         if (m_client->SendMessage(MessageType::HEARTBEAT, "")) {
             _MESSAGE("NetworkManager::HandleSaveGameLoaded - Heartbeat sent successfully, maintaining connection");
-            
+
             // Clear any pending messages to start fresh
             {
                 std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -533,11 +535,11 @@ void NetworkManager::HandleSaveGameLoaded() {
                     std::swap(m_messageQueue, empty);
                 }
             }
-            
+
             // Connection is still good, no need to disconnect and reconnect
             return;
         }
-        
+
         _MESSAGE("NetworkManager::HandleSaveGameLoaded - Heartbeat failed, will disconnect and reconnect");
     }
 
