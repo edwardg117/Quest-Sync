@@ -112,6 +112,26 @@ void HandleMessage(TCPServer* server, SOCKET clientSocket, const Message& messag
             break;
         }
 
+        case MessageType::QUEST_UPDATE: {
+            // Quest update received from client
+            std::string questData = message.GetPayloadAsString();
+            LOG_INFO("Client " + std::to_string(clientSocket) + " sent quest update: " + questData);
+
+            // Broadcast to all other clients
+            server->BroadcastMessage(message, clientSocket);
+            break;
+        }
+
+        case MessageType::OBJECTIVE_UPDATE: {
+            // Objective update received from client
+            std::string objectiveData = message.GetPayloadAsString();
+            LOG_INFO("Client " + std::to_string(clientSocket) + " sent objective update: " + objectiveData);
+
+            // Broadcast to all other clients
+            server->BroadcastMessage(message, clientSocket);
+            break;
+        }
+
         default: {
             // Unknown message type
             LOG_WARNING("Unknown message type " + std::to_string(static_cast<int>(message.GetType())) +

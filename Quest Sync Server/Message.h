@@ -17,6 +17,10 @@ enum class MessageType : uint16_t {
     HEARTBEAT = 2,                // Both ways: Keep connection alive
     DISCONNECT = 3,               // Both ways: Graceful disconnect
 
+    // Quest sync messages
+    QUEST_UPDATE = 5,             // Client -> Server -> Other Clients: Quest state update
+    OBJECTIVE_UPDATE = 20,        // Client -> Server -> Other Clients: Objective state update
+
     // Application-specific messages (examples)
     DATA_REQUEST = 100,           // Client -> Server: Request data
     DATA_RESPONSE = 101,          // Server -> Client: Send requested data
