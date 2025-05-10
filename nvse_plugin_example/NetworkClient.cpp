@@ -53,6 +53,16 @@ bool NetworkClient::Initialize() {
 bool NetworkClient::Connect() {
     _MESSAGE("NetworkClient::Connect - Attempting to connect to %s:%d", m_serverAddress.c_str(), m_serverPort);
     _MESSAGE("NetworkClient::Connect - Client version: %d.%d", m_clientVersion[0], m_clientVersion[1]);
+
+    // Double-check debug mode setting from config to ensure consistency
+    Config& config = Config::GetInstance();
+    bool configDebugMode = config.GetBool("Network.DebugMode", false);
+    if (m_debugMode != configDebugMode) {
+        _MESSAGE("NetworkClient::Connect - Debug mode setting mismatch. Config: %s, Client: %s. Fixing...",
+                configDebugMode ? "enabled" : "disabled", m_debugMode ? "enabled" : "disabled");
+        m_debugMode = configDebugMode;
+    }
+
     _MESSAGE("NetworkClient::Connect - Debug mode: %s", m_debugMode ? "enabled" : "disabled");
 
     try {

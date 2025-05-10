@@ -563,17 +563,26 @@ void NetworkManager::HandleSaveGameLoaded() {
 
     // Try to reconnect
     _MESSAGE("NetworkManager::HandleSaveGameLoaded - Attempting to reconnect");
-    int reconnectAttempts = 0;
-    const int maxReconnectAttempts = 3;
 
+    // Get reconnect settings from config
+    Config& config = Config::GetInstance();
+    int maxReconnectAttempts = config.GetInt("Network.SaveGameReconnectAttempts", 2); // Default to 2 attempts for save game loading
+    int reconnectDelayMs = config.GetInt("Network.SaveGameReconnectDelay", 1000); // Default to 1 second between attempts
+
+    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Using max reconnect attempts: %d, delay: %d ms",
+             maxReconnectAttempts, reconnectDelayMs);
+
+    int reconnectAttempts = 0;
+
+    // Only try to reconnect if the server is likely to be running
     while (reconnectAttempts < maxReconnectAttempts) {
         if (Connect()) {
             _MESSAGE("NetworkManager::HandleSaveGameLoaded - Reconnected successfully on attempt %d", reconnectAttempts + 1);
             ShowNotification("Connected to Quest Sync server");
 
             // The Connect method now handles the handshake, so we don't need to verify with a heartbeat
-            // Just add a delay to ensure stability
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            // Just add a small delay to ensure stability
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
             // Connection is good, we're done
             return;
@@ -582,12 +591,20 @@ void NetworkManager::HandleSaveGameLoaded() {
         }
 
         reconnectAttempts++;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        // Only sleep between attempts, not after the last one
+        if (reconnectAttempts < maxReconnectAttempts) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(reconnectDelayMs));
+        }
     }
 
     // If we get here, all reconnect attempts failed
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Failed to establish a stable connection after %d attempts", maxReconnectAttempts);
-    ShowNotification("Failed to connect to Quest Sync server. Will try again later.");
+    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Failed to establish a connection after %d attempts", maxReconnectAttempts);
+
+    // Only show notification if we actually tried to connect (maxReconnectAttempts > 0)
+    if (maxReconnectAttempts > 0) {
+        ShowNotification("Failed to connect to Quest Sync server. Will try again later.");
+    }
 }
 
 // Message received callback

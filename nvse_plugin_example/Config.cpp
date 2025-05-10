@@ -26,6 +26,8 @@ void Config::InitializeDefaultConfig() {
     m_config["Network.MaxReconnectAttempts"] = "5";
     m_config["Network.ConnectionTimeout"] = "5"; // Seconds
     m_config["Network.DebugMode"] = "false";
+    m_config["Network.SaveGameReconnectAttempts"] = "2"; // Number of reconnect attempts when loading a save
+    m_config["Network.SaveGameReconnectDelay"] = "1000"; // Milliseconds between reconnect attempts when loading a save
 
     // Client settings
     m_config["Client.Version"] = "1.0";
@@ -59,6 +61,8 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
         defaultConfig["Network.MaxReconnectAttempts"] = "5";
         defaultConfig["Network.ConnectionTimeout"] = "5"; // Seconds
         defaultConfig["Network.DebugMode"] = "false";
+        defaultConfig["Network.SaveGameReconnectAttempts"] = "2"; // Number of reconnect attempts when loading a save
+        defaultConfig["Network.SaveGameReconnectDelay"] = "1000"; // Milliseconds between reconnect attempts when loading a save
 
         // Client settings
         defaultConfig["Client.Version"] = "1.0";
@@ -109,6 +113,12 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
                     }
                     else if (pair.first == "DebugMode") {
                         file << "# Enable debug mode for detailed logging (true/false)" << std::endl;
+                    }
+                    else if (pair.first == "SaveGameReconnectAttempts") {
+                        file << "# Number of reconnect attempts when loading a save game (0 to disable)" << std::endl;
+                    }
+                    else if (pair.first == "SaveGameReconnectDelay") {
+                        file << "# Milliseconds between reconnect attempts when loading a save game" << std::endl;
                     }
                 }
                 else if (section.first == "Client") {
@@ -199,6 +209,8 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
     defaultConfig["Network.MaxReconnectAttempts"] = "5";
     defaultConfig["Network.ConnectionTimeout"] = "5"; // Seconds
     defaultConfig["Network.DebugMode"] = "false";
+    defaultConfig["Network.SaveGameReconnectAttempts"] = "2"; // Number of reconnect attempts when loading a save
+    defaultConfig["Network.SaveGameReconnectDelay"] = "1000"; // Milliseconds between reconnect attempts when loading a save
 
     // Client settings
     defaultConfig["Client.Version"] = "1.0";
@@ -293,6 +305,12 @@ bool Config::Save() {
                     }
                     else if (pair.first == "DebugMode") {
                         file << "# Enable debug mode for detailed logging (true/false)" << std::endl;
+                    }
+                    else if (pair.first == "SaveGameReconnectAttempts") {
+                        file << "# Number of reconnect attempts when loading a save game (0 to disable)" << std::endl;
+                    }
+                    else if (pair.first == "SaveGameReconnectDelay") {
+                        file << "# Milliseconds between reconnect attempts when loading a save game" << std::endl;
                     }
                 }
                 else if (section.first == "Client") {
