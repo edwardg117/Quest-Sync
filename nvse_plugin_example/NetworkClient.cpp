@@ -1,6 +1,7 @@
 #include "NetworkClient.h"
 #include "Config.h"
 #include "QuestSyncLogging.h"
+#include "Version.h"
 #include <iostream>
 #include <chrono>
 #include "nvse/PluginAPI.h"
@@ -13,7 +14,7 @@ NetworkClient::NetworkClient(const std::string& serverAddress, int serverPort)
       m_connected(false),
       m_initialized(false),
       m_handshakeCompleted(false),
-      m_clientVersion{1, 0},
+      m_clientVersion(ClientVersion::Version),
       m_reconnectInterval(60),
       m_maxReconnectAttempts(5),
       m_reconnectAttempts(0),
@@ -56,9 +57,15 @@ bool NetworkClient::Initialize() {
 // Connect to the server
 bool NetworkClient::Connect() {
     QUESTSYNC_LOG_INFO("Attempting to connect to %s:%d", m_serverAddress.c_str(), m_serverPort);
-    QUESTSYNC_LOG_INFO("Client version: %d.%d", m_clientVersion[0], m_clientVersion[1]);
+    QUESTSYNC_LOG_INFO("Client version: %s", ClientVersion::GetVersionString().c_str());
 
     try {
+        // Validate client version before attempting connection
+        if (!ValidateClientVersion()) {
+            QUESTSYNC_LOG_ERROR("Client version validation failed, aborting connection");
+            return false;
+        }
+
         // Check if already connected
         if (m_connected) {
             QUESTSYNC_LOG_INFO("Already connected");
@@ -537,6 +544,25 @@ void NetworkClient::SetClientVersion(int major, int minor) {
     m_clientVersion[1] = minor;
 }
 
+// Validate client version for basic sanity checks
+bool NetworkClient::ValidateClientVersion() const {
+    // Basic sanity checks for version numbers
+    if (m_clientVersion[0] < 0 || m_clientVersion[1] < 0) {
+        QUESTSYNC_LOG_ERROR("Invalid client version: negative numbers not allowed (%d.%d)",
+                           m_clientVersion[0], m_clientVersion[1]);
+        return false;
+    }
+
+    if (m_clientVersion[0] > 99 || m_clientVersion[1] > 999) {
+        QUESTSYNC_LOG_ERROR("Invalid client version: numbers too large (%d.%d)",
+                           m_clientVersion[0], m_clientVersion[1]);
+        return false;
+    }
+
+    QUESTSYNC_LOG_DEBUG("Client version validation passed: %s", ClientVersion::GetVersionString().c_str());
+    return true;
+}
+
 
 
 // Process any pending messages
@@ -778,8 +804,7 @@ bool NetworkClient::SendHandshake() {
     std::vector<uint8_t> payload = request.Serialize();
 
     // Always log handshake details for troubleshooting
-    QUESTSYNC_LOG_INFO("Client version: %d.%d",
-             m_clientVersion[0], m_clientVersion[1]);
+    QUESTSYNC_LOG_INFO("Client version: %s", ClientVersion::GetVersionString().c_str());
     QUESTSYNC_LOG_DEBUG("Payload size: %u bytes", payload.size());
 
     // Dump payload bytes for debugging

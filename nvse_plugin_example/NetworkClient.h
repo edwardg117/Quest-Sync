@@ -151,7 +151,12 @@ public:
      */
     void SetClientVersion(int major, int minor);
 
-
+    /**
+     * @brief Validate client version for basic sanity checks
+     *
+     * @return True if client version appears valid, false otherwise
+     */
+    bool ValidateClientVersion() const;
 
     /**
      * @brief Process any pending messages

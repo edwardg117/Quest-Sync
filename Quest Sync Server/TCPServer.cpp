@@ -393,8 +393,10 @@ void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& re
 
     // Check if the client version is compatible
     bool accepted = Version::IsCompatible(request.clientVersion);
+    std::string compatibilityMessage = Version::GetCompatibilityErrorMessage(request.clientVersion);
 
     LOG_INFO("Client version compatibility check: " + std::string(accepted ? "COMPATIBLE" : "INCOMPATIBLE"));
+    LOG_INFO("Compatibility details: " + compatibilityMessage);
     LOG_INFO("Server version: " + Version::VersionToString(Version::ServerVersion) +
              ", supported client versions: " + Version::VersionToString(Version::MinClientVersion) +
              " to " + Version::VersionToString(Version::MaxClientVersion));
@@ -405,12 +407,7 @@ void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& re
         message = "Connection accepted. Server version: " +
                   Version::VersionToString(Version::ServerVersion);
     } else {
-        message = "Connection rejected. Incompatible version. Server version: " +
-                  Version::VersionToString(Version::ServerVersion) +
-                  ", supported client versions: " +
-                  Version::VersionToString(Version::MinClientVersion) +
-                  " to " +
-                  Version::VersionToString(Version::MaxClientVersion);
+        message = compatibilityMessage;
     }
 
     // Create the handshake response

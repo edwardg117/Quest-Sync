@@ -386,6 +386,7 @@
     <ClInclude Include="QuestManager.h" />
     <ClInclude Include="QuestStateTracker.h" />
     <ClInclude Include="QuestSyncLogging.h" />
+    <ClInclude Include="Version.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="exports.def" />
