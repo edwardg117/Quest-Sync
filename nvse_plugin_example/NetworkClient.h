@@ -166,6 +166,17 @@ public:
      */
     void ProcessMessages();
 
+    void ResetReconnectCounter();  // Reset counter on successful connection
+
+    /**
+     * @brief Try to reconnect to the server
+     *
+     * This method checks if reconnection is needed and attempts to reconnect
+     * if the maximum number of attempts hasn't been exceeded and enough time
+     * has passed since the last attempt.
+     */
+    void TryReconnect();
+
 private:
     // Server information
     std::string m_serverAddress;
@@ -185,6 +196,7 @@ private:
     int m_maxReconnectAttempts;
     int m_reconnectAttempts;
     std::chrono::steady_clock::time_point m_lastReconnectAttempt;
+    bool m_maxAttemptsWarningLogged;
 
     // Message queue and thread safety
     std::queue<std::unique_ptr<Message>> m_messageQueue;
@@ -204,9 +216,9 @@ private:
     bool ProcessHandshakeResponse(const Message& message);
     bool ProcessReceivedData(std::vector<uint8_t>& data);
     bool ProcessReceivedData(char* buffer, int bytesReceived);
-    void TryReconnect();
 };
 
 #endif // NETWORK_CLIENT_H
+
 
 

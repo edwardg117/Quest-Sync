@@ -18,6 +18,7 @@ NetworkClient::NetworkClient(const std::string& serverAddress, int serverPort)
       m_reconnectInterval(60),
       m_maxReconnectAttempts(5),
       m_reconnectAttempts(0),
+      m_maxAttemptsWarningLogged(false),
       m_threadRunning(false) {
 }
 
@@ -69,6 +70,7 @@ bool NetworkClient::Connect() {
         // Check if already connected
         if (m_connected) {
             QUESTSYNC_LOG_INFO("Already connected");
+            ResetReconnectCounter();  // Reset counter on successful connection
             return true;
         }
 
@@ -378,6 +380,9 @@ void NetworkClient::Disconnect() {
     }
 
     QUESTSYNC_LOG_INFO("NetworkClient::Disconnect - Disconnection complete");
+
+    // Reset reconnect counter on manual disconnect
+    ResetReconnectCounter();
 }
 
 // Clean up resources
@@ -1168,8 +1173,12 @@ void NetworkClient::TryReconnect() {
 
     // Check if we've exceeded the maximum number of reconnect attempts
     if (m_reconnectAttempts >= m_maxReconnectAttempts) {
-        QUESTSYNC_LOG_WARNING("NetworkClient::TryReconnect - Maximum reconnect attempts (%d) exceeded",
-                m_maxReconnectAttempts);
+        // Only log the warning once to prevent log spam
+        if (!m_maxAttemptsWarningLogged) {
+            QUESTSYNC_LOG_WARNING("NetworkClient::TryReconnect - Maximum reconnect attempts (%d) exceeded",
+                    m_maxReconnectAttempts);
+            m_maxAttemptsWarningLogged = true;
+        }
         return;
     }
 
@@ -1216,6 +1225,7 @@ void NetworkClient::TryReconnect() {
             QUESTSYNC_LOG_INFO("NetworkClient::TryReconnect - Reconnected to server successfully");
             // Reset reconnect attempts on successful connection
             m_reconnectAttempts = 0;
+            m_maxAttemptsWarningLogged = false;
             // Connection status callback will handle the notification
         }
         else {
@@ -1254,15 +1264,10 @@ void NetworkClient::TryReconnect() {
     }
 }
 
-
-
-
-
-
-
-
-
-
+void NetworkClient::ResetReconnectCounter() {
+    m_reconnectAttempts = 0;
+    m_maxAttemptsWarningLogged = false;
+}
 
 
 

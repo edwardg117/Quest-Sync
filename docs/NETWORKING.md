@@ -63,13 +63,13 @@ enum class MessageType : uint32_t {
     HANDSHAKE_RESPONSE = 0x0002,
     HEARTBEAT = 0x0003,
     DISCONNECT = 0x0004,
-    
+
     // Quest Synchronization
     QUEST_UPDATE = 0x0100,
     QUEST_COMPLETE = 0x0101,
     QUEST_START = 0x0102,
     QUEST_STAGE_UPDATE = 0x0103,
-    
+
     // Error Handling
     ERROR_RESPONSE = 0x8000,
     VERSION_MISMATCH = 0x8001,
@@ -86,7 +86,7 @@ Quest Sync uses a custom binary serialization format instead of JSON for perform
 ```cpp
 // Integer types (little-endian)
 uint8_t   - 1 byte
-uint16_t  - 2 bytes  
+uint16_t  - 2 bytes
 uint32_t  - 4 bytes
 uint64_t  - 8 bytes
 
@@ -251,10 +251,38 @@ public:
 
 #### Client Recovery
 
-- **Automatic Reconnection**: Configurable retry logic with backoff
+- **Automatic Reconnection**: ✅ **IMPLEMENTED** - Configurable retry logic with backoff
+  - **MaxReconnectAttempts**: Limits total reconnection attempts (default: 5)
+  - **ReconnectInterval**: Time between reconnection attempts (default: 60 seconds)
+  - **SaveGameReconnectAttempts**: Separate limit for save game loading (default: 2)
+  - **Counter Reset**: Automatically resets on successful connections
+  - **User Feedback**: Notifications when max attempts reached
 - **State Synchronization**: Re-sync quest state after reconnection
 - **Message Replay**: Replay missed messages after connection recovery
 - **Graceful Degradation**: Continue operation in offline mode
+
+#### Reconnection Configuration
+
+The client supports multiple reconnection contexts with different limits:
+
+```ini
+[Network]
+# General reconnection settings
+MaxReconnectAttempts=5          # Maximum attempts for normal reconnection
+ReconnectInterval=60            # Seconds between attempts
+ConnectionTimeout=5             # Connection timeout in seconds
+
+# Save game specific reconnection
+SaveGameReconnectAttempts=2     # Attempts when loading save games
+SaveGameReconnectDelay=1000     # Milliseconds between save game attempts
+```
+
+#### Reconnection Behavior
+
+1. **Normal Operation**: Uses `MaxReconnectAttempts` and `ReconnectInterval`
+2. **Save Game Loading**: Uses `SaveGameReconnectAttempts` with faster retry
+3. **Connection Reset**: Immediate reconnection attempt, then falls back to normal logic
+4. **Manual Disconnect**: Resets attempt counter for clean reconnection state
 
 #### Server Recovery
 

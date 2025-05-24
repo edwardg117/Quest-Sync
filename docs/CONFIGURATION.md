@@ -35,16 +35,18 @@ Key=Value
 # Server connection settings
 ServerAddress=127.0.0.1
 ServerPort=25575
+ReconnectInterval=60
 MaxReconnectAttempts=5
-ReconnectDelay=3000
-ConnectionTimeout=10000
+ConnectionTimeout=5
+SaveGameReconnectAttempts=2
+SaveGameReconnectDelay=1000
 ```
 
 **ServerAddress**
 - **Type**: String (IP address or hostname)
 - **Default**: `127.0.0.1`
 - **Description**: IP address or hostname of the Quest Sync server
-- **Examples**: 
+- **Examples**:
   - `127.0.0.1` (local server)
   - `192.168.1.100` (LAN server)
   - `questsync.example.com` (internet server)
@@ -61,20 +63,35 @@ ConnectionTimeout=10000
 - **Default**: `5`
 - **Range**: 0-100 (0 = infinite attempts)
 - **Description**: Maximum number of reconnection attempts after connection loss
-- **Status**: ⚠️ Planned feature (not yet implemented)
+- **Status**: ✅ **IMPLEMENTED** - Fully functional with counter reset on successful connections
 
-**ReconnectDelay**
-- **Type**: Integer (milliseconds)
-- **Default**: `3000`
-- **Range**: 1000-60000
-- **Description**: Delay between reconnection attempts
-- **Status**: ⚠️ Planned feature (not yet implemented)
+**ReconnectInterval**
+- **Type**: Integer (seconds)
+- **Default**: `60`
+- **Range**: 1-3600
+- **Description**: Time delay between reconnection attempts
+- **Status**: ✅ **IMPLEMENTED** - Configurable interval between retry attempts
 
 **ConnectionTimeout**
+- **Type**: Integer (seconds)
+- **Default**: `5`
+- **Range**: 1-120
+- **Description**: Timeout for connection establishment
+- **Status**: ✅ **IMPLEMENTED** - Configurable connection timeout
+
+**SaveGameReconnectAttempts**
+- **Type**: Integer
+- **Default**: `2`
+- **Range**: 0-10
+- **Description**: Maximum reconnection attempts when loading save games
+- **Status**: ✅ **IMPLEMENTED** - Separate limit for save game scenarios
+
+**SaveGameReconnectDelay**
 - **Type**: Integer (milliseconds)
-- **Default**: `10000`
-- **Range**: 5000-120000
-- **Description**: Timeout for initial connection establishment
+- **Default**: `1000`
+- **Range**: 100-10000
+- **Description**: Delay between save game reconnection attempts
+- **Status**: ✅ **IMPLEMENTED** - Faster retry for save game loading
 
 ### Logging Settings
 
@@ -372,10 +389,11 @@ For troubleshooting, use these debug settings:
 ```ini
 [Client]
 LogLevel=DEBUG
-LogToFile=true
 
 [Network]
-ConnectionTimeout=30000
+ConnectionTimeout=30
+MaxReconnectAttempts=10
+ReconnectInterval=30
 ```
 
 #### Server Debug Config
@@ -405,6 +423,9 @@ MaxConnections=10
 [Network]
 ServerAddress=192.168.1.100
 ServerPort=25575
+ReconnectInterval=60
+MaxReconnectAttempts=5
+ConnectionTimeout=5
 ```
 
 #### Internet Server Setup
@@ -425,7 +446,9 @@ AllowedIPs=203.0.113.0/24
 [Network]
 ServerAddress=questsync.example.com
 ServerPort=25575
-ConnectionTimeout=15000
+ReconnectInterval=60
+MaxReconnectAttempts=5
+ConnectionTimeout=15
 ```
 
 For additional configuration help, see the [Troubleshooting Guide](TROUBLESHOOTING.md) or create an issue on the project repository.

@@ -294,35 +294,8 @@ void NetworkManager::ProcessMessages() {
         }
 
         if (!isConnected) {
-            // Try to reconnect if needed
-            static std::chrono::steady_clock::time_point lastReconnectAttempt = std::chrono::steady_clock::now();
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastReconnectAttempt).count();
-
-            // Get reconnect interval from config
-            Config& config = Config::GetInstance();
-            int reconnectInterval = config.GetInt("Network.ReconnectInterval", 60);
-
-            // Try to reconnect based on the configured interval
-            if (elapsed >= reconnectInterval) {
-                QUESTSYNC_LOG_INFO("Attempting to reconnect (interval: %d seconds)", reconnectInterval);
-                lastReconnectAttempt = now;
-
-                // Only show notification on first reconnect attempt
-                static bool firstReconnectAttempt = true;
-                if (firstReconnectAttempt) {
-                    ShowNotification("Attempting to connect to Quest Sync server...");
-                    firstReconnectAttempt = false;
-                }
-
-                if (Connect()) {
-                    QUESTSYNC_LOG_INFO("Reconnected successfully");
-                    firstReconnectAttempt = true; // Reset for next time
-                } else {
-                    QUESTSYNC_LOG_WARNING("Reconnection failed");
-                }
-            }
-
+            // Delegate reconnection to NetworkClient which properly respects MaxReconnectAttempts
+            m_client->TryReconnect();
             return;
         }
 
