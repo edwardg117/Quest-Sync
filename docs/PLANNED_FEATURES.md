@@ -7,13 +7,13 @@ This document outlines planned features and improvements for the Quest Sync proj
 ### High Priority
 
 #### Client.LogLevel Implementation
-- **Status**: Planned
+- **Status**: Implemented
 - **Description**: Implement proper log level control with the configuration setting
-- **Current State**: Setting exists in config but not fully implemented
+- **Current State**: Setting exists in config and is fully implemented
 - **Implementation**: 
-  - Add log level filtering in `QuestSyncLogging.cpp`
+  - Added log level filtering in `QuestSyncLogging.cpp`
   - Support levels: DEBUG, INFO, WARNING, ERROR
-  - Respect configuration setting during runtime
+  - Respects configuration setting during runtime
 
 #### Network.MaxReconnectAttempts Implementation
 - **Status**: Planned
@@ -278,3 +278,4 @@ This document outlines planned features and improvements for the Quest Sync proj
 - Community contributions are welcome for all features
 
 For questions about specific features or to volunteer for implementation, please create an issue on the project repository or join the development discussion on Discord.
+

@@ -94,7 +94,7 @@ MaxLogFileSize=10485760
 - **Default**: `INFO`
 - **Values**: `DEBUG`, `INFO`, `WARNING`, `ERROR`
 - **Description**: Minimum log level for messages
-- **Status**: ⚠️ Planned feature (partially implemented)
+- **Status**: ✅ Implemented
 
 **LogToFile**
 - **Type**: Boolean
@@ -429,3 +429,4 @@ ConnectionTimeout=15000
 ```
 
 For additional configuration help, see the [Troubleshooting Guide](TROUBLESHOOTING.md) or create an issue on the project repository.
+

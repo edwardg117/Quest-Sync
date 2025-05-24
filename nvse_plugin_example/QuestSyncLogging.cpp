@@ -65,3 +65,39 @@ void SetLogLevelFromConfig() {
 QuestSyncLogLevel GetCurrentLogLevel() {
     return g_logLevel;
 }
+
+// Add a function to get the current log level as a string
+std::string GetCurrentLogLevelString() {
+    switch (g_logLevel) {
+        case QuestSyncLogLevel::DEBUG:   return "DEBUG";
+        case QuestSyncLogLevel::INFO:    return "INFO";
+        case QuestSyncLogLevel::WARNING: return "WARNING";
+        case QuestSyncLogLevel::ERROR:   return "ERROR";
+        default:                         return "UNKNOWN";
+    }
+}
+
+// Add a helper function to convert log level to string
+std::string GetLogLevelString(QuestSyncLogLevel level) {
+    switch (level) {
+        case QuestSyncLogLevel::DEBUG:   return "DEBUG";
+        case QuestSyncLogLevel::INFO:    return "INFO";
+        case QuestSyncLogLevel::WARNING: return "WARNING";
+        case QuestSyncLogLevel::ERROR:   return "ERROR";
+        default:                         return "UNKNOWN";
+    }
+}
+
+// Add a function to update log level at runtime
+void UpdateLogLevelFromConfig() {
+    QuestSyncLogLevel oldLevel = g_logLevel;
+    SetLogLevelFromConfig();
+    
+    if (oldLevel != g_logLevel) {
+        QUESTSYNC_LOG_INFO("Log level changed from %s to %s", 
+                          GetLogLevelString(oldLevel).c_str(), 
+                          GetLogLevelString(g_logLevel).c_str());
+    }
+}
+
+

@@ -30,4 +30,11 @@ QuestSyncLogLevel GetCurrentLogLevel();
 #define QUESTSYNC_LOG_WARNING(fmt, ...) QuestSyncLog(QuestSyncLogLevel::WARNING, fmt, ##__VA_ARGS__)
 #define QUESTSYNC_LOG_ERROR(fmt, ...) QuestSyncLog(QuestSyncLogLevel::ERROR, fmt, ##__VA_ARGS__)
 
+// Add these function declarations
+std::string GetCurrentLogLevelString();
+void UpdateLogLevelFromConfig();
+std::string GetLogLevelString(QuestSyncLogLevel level);
+
 #endif // QUESTSYNC_LOGGING_H
+
+
