@@ -1,6 +1,7 @@
 #include "QuestStateTracker.h"
 #include "NetworkManager.h"
 #include "Message.h" // This should include the MessageType enum
+#include "QuestSyncLogging.h"
 #include "nvse/PluginAPI.h"
 #include <sstream>
 #include <iomanip>
@@ -23,17 +24,18 @@ QuestStateTracker::QuestStateTracker()
 // Initialize the quest state tracker
 bool QuestStateTracker::Initialize(NVSEConsoleInterface* consoleInterface) {
     if (m_initialized) {
+        QUESTSYNC_LOG_DEBUG("QuestStateTracker already initialized");
         return true;
     }
 
     if (!consoleInterface) {
-        _MESSAGE("QuestStateTracker: Console interface is null");
+        QUESTSYNC_LOG_ERROR("Console interface is null");
         return false;
     }
 
     m_consoleInterface = consoleInterface;
     m_initialized = true;
-    _MESSAGE("QuestStateTracker initialized successfully");
+    QUESTSYNC_LOG_INFO("QuestStateTracker initialized successfully");
     return true;
 }
 
@@ -45,11 +47,11 @@ void QuestStateTracker::SetNetworkManager(NetworkManager* networkManager) {
 // Execute a console command
 bool QuestStateTracker::ExecuteConsoleCommand(const std::string& command) {
     if (!m_consoleInterface) {
-        _MESSAGE("QuestStateTracker: Cannot execute command, console interface is null");
+        QUESTSYNC_LOG_ERROR("Cannot execute command, console interface is null");
         return false;
     }
 
-    _MESSAGE("QuestStateTracker: Executing console command: %s", command.c_str());
+    QUESTSYNC_LOG_DEBUG("Executing console command: %s", command.c_str());
     m_consoleInterface->RunScriptLine(command.c_str(), nullptr);
     return true;
 }
@@ -58,20 +60,20 @@ bool QuestStateTracker::ExecuteConsoleCommand(const std::string& command) {
 bool QuestStateTracker::UpdateQuestStates(tList<BGSQuestObjective> questObjectiveList) {
     // Only log occasionally to avoid filling the log file
     static int logCounter = 0;
-    bool shouldLog = (logCounter++ % 1000 == 0);
+    bool shouldLog = (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG && logCounter++ % 1000 == 0);
 
     if (shouldLog) {
-        _MESSAGE("QuestStateTracker::UpdateQuestStates called with %d objectives", questObjectiveList.Count());
+        QUESTSYNC_LOG_DEBUG("UpdateQuestStates called with %d objectives", questObjectiveList.Count());
     }
 
     if (!m_initialized) {
-        _MESSAGE("QuestStateTracker: Not initialized");
+        QUESTSYNC_LOG_ERROR("QuestStateTracker not initialized");
         return false;
     }
 
     // Add logging for network manager state only when we're logging other things
     if (shouldLog) {
-        _MESSAGE("QuestStateTracker: Network manager is %s", m_networkManager ? "valid" : "NULL");
+        QUESTSYNC_LOG_DEBUG("Network manager is %s", m_networkManager ? "valid" : "NULL");
     }
 
     // Store previous states for change detection
@@ -168,7 +170,7 @@ std::map<std::string, std::string> ParseKeyValuePairs(const std::string& str) {
 // Process a quest state message from the server
 bool QuestStateTracker::ProcessQuestStateMessage(const Message& message) {
     if (!m_initialized) {
-        _MESSAGE("QuestStateTracker: Not initialized");
+        QUESTSYNC_LOG_ERROR("QuestStateTracker not initialized");
         return false;
     }
 
@@ -253,7 +255,7 @@ bool QuestStateTracker::ProcessQuestStateMessage(const Message& message) {
         }
 
         default:
-            _MESSAGE("QuestStateTracker: Unhandled message type %d", static_cast<int>(type));
+            QUESTSYNC_LOG_WARNING("Unhandled message type %d", static_cast<int>(type));
             break;
     }
 
@@ -278,35 +280,35 @@ const std::unordered_map<UInt32, QuestState>& QuestStateTracker::GetAllQuestStat
 void QuestStateTracker::Reset() {
     m_questStates.clear();
     m_previousQuestStates.clear();
-    _MESSAGE("QuestStateTracker: Reset all quest states");
+    QUESTSYNC_LOG_INFO("Reset all quest states");
 }
 
 // Detect quest changes and send updates
 bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, QuestState>& currentStates) {
     // Only log occasionally or when there are changes
     static int logCounter = 0;
-    bool shouldLog = (logCounter++ % 1000 == 0);
+    bool shouldLog = (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG && logCounter++ % 1000 == 0);
 
     if (shouldLog) {
-        _MESSAGE("QuestStateTracker::DetectQuestChanges called with %d quest states", currentStates.size());
+        QUESTSYNC_LOG_DEBUG("DetectQuestChanges called with %d quest states", currentStates.size());
     }
 
     if (!m_networkManager) {
         if (shouldLog) {
-            _MESSAGE("QuestStateTracker: Cannot send updates, network manager is null");
+            QUESTSYNC_LOG_DEBUG("Cannot send updates, network manager is null");
         }
         return false;
     }
 
     if (!m_networkManager->IsConnected()) {
         if (shouldLog) {
-            _MESSAGE("QuestStateTracker: Cannot send updates, not connected to server");
+            QUESTSYNC_LOG_DEBUG("Cannot send updates, not connected to server");
         }
         return false;
     }
 
     if (shouldLog) {
-        _MESSAGE("QuestStateTracker: Previous states count: %d", m_previousQuestStates.size());
+        QUESTSYNC_LOG_DEBUG("Previous states count: %d", m_previousQuestStates.size());
     }
 
     bool changesSent = false;
@@ -316,18 +318,18 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 
     // If this is the first update, only send active quests to avoid overwhelming the server
     if (isFirstUpdate) {
-        _MESSAGE("QuestStateTracker: First update after loading save, sending only active quests");
+        QUESTSYNC_LOG_INFO("First update after loading save, sending only active quests");
 
         // Reduce the delay before sending quest updates
-        _MESSAGE("QuestStateTracker: Waiting 500ms before sending quest updates");
+        QUESTSYNC_LOG_DEBUG("Waiting 500ms before sending quest updates");
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        
+
         // Check if we're still connected after the delay
         if (!m_networkManager || !m_networkManager->IsConnected()) {
-            _MESSAGE("QuestStateTracker: Not connected after delay, cannot send updates");
+            QUESTSYNC_LOG_WARNING("Not connected after delay, cannot send updates");
             return false;
         }
-        
+
         // Count active quests
         int activeQuestCount = 0;
         std::vector<const QuestState*> activeQuests;
@@ -336,7 +338,7 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
             // Skip blacklisted quests (tutorial quests and others that don't need syncing)
             if (questId == 0x104c1c || questId == 0x10a214 ||  // "Ain't That a Kick in the Head" and "Back in the Saddle"
                 questId == 0x00013b || questId == 0x00013c) {  // Add more blacklisted quests as needed
-                _MESSAGE("QuestStateTracker: Skipping blacklisted quest %s (%s)",
+                QUESTSYNC_LOG_DEBUG("Skipping blacklisted quest %s (%s)",
                          state.questName.c_str(), QuestIdToHexString(questId).c_str());
                 continue;
             }
@@ -347,7 +349,7 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
             }
         }
 
-        _MESSAGE("QuestStateTracker: Found %d active quests", activeQuestCount);
+        QUESTSYNC_LOG_INFO("Found %d active quests", activeQuestCount);
 
         // If we have active quests, send them in batches
         if (!activeQuests.empty()) {
@@ -355,29 +357,29 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
             const int batchSize = 5; // Increase batch size
             int batchCount = (activeQuestCount + batchSize - 1) / batchSize; // Ceiling division
 
-            _MESSAGE("QuestStateTracker: Sending active quests in %d batches of up to %d quests each",
+            QUESTSYNC_LOG_INFO("Sending active quests in %d batches of up to %d quests each",
                      batchCount, batchSize);
 
             // Increase the number of quests we send initially
             const int maxInitialQuests = 15; // Increase initial quest limit
             int questsToSend = (activeQuestCount > maxInitialQuests) ? maxInitialQuests : activeQuestCount;
 
-            _MESSAGE("QuestStateTracker: Limiting initial sync to %d quests", questsToSend);
+            QUESTSYNC_LOG_INFO("Limiting initial sync to %d quests", questsToSend);
 
             for (int batch = 0; batch < (questsToSend + batchSize - 1) / batchSize; batch++) {
                 // Check connection before each batch
                 if (!m_networkManager->IsConnected()) {
-                    _MESSAGE("QuestStateTracker: Connection lost during batch sending, aborting");
+                    QUESTSYNC_LOG_WARNING("Connection lost during batch sending, aborting");
                     return changesSent;
                 }
 
-                _MESSAGE("QuestStateTracker: Sending batch %d/%d", 
+                QUESTSYNC_LOG_DEBUG("Sending batch %d/%d",
                          batch + 1, (questsToSend + batchSize - 1) / batchSize);
 
                 // Send quests in this batch
                 int startIdx = batch * batchSize;
                 int endIdx = std::min<int>(startIdx + batchSize, questsToSend);
-                
+
                 for (int i = startIdx; i < endIdx && i < static_cast<int>(activeQuests.size()); i++) {
                     SendQuestUpdate(*activeQuests[i]);
                     changesSent = true;
@@ -390,13 +392,13 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 
                 // Reduce delay between batches
                 if (batch < (questsToSend + batchSize - 1) / batchSize - 1) {
-                    _MESSAGE("QuestStateTracker: Waiting before sending next batch");
+                    QUESTSYNC_LOG_DEBUG("Waiting before sending next batch");
                     std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Reduced delay
                 }
             }
 
             if (activeQuestCount > maxInitialQuests) {
-                _MESSAGE("QuestStateTracker: Remaining %d quests will be synced in subsequent updates",
+                QUESTSYNC_LOG_INFO("Remaining %d quests will be synced in subsequent updates",
                          activeQuestCount - maxInitialQuests);
             }
         }
@@ -415,7 +417,7 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 
         if (prevIt == m_previousQuestStates.end()) {
             // New quest
-            _MESSAGE("QuestStateTracker: New quest detected: %s (%s)",
+            QUESTSYNC_LOG_INFO("New quest detected: %s (%s)",
                      currentState.questName.c_str(), QuestIdToHexString(questId).c_str());
             SendQuestUpdate(currentState);
             changesSent = true;
@@ -427,7 +429,7 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
             if (currentState.active != prevState.active ||
                 currentState.completed != prevState.completed ||
                 currentState.failed != prevState.failed) {
-                _MESSAGE("QuestStateTracker: Quest state changed for %s (%s)",
+                QUESTSYNC_LOG_INFO("Quest state changed for %s (%s)",
                          currentState.questName.c_str(), QuestIdToHexString(questId).c_str());
                 SendQuestUpdate(currentState);
                 changesSent = true;
@@ -439,13 +441,13 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 
                 if (prevObjIt == prevState.objectives.end()) {
                     // New objective
-                    _MESSAGE("QuestStateTracker: New objective %d for quest %s",
+                    QUESTSYNC_LOG_INFO("New objective %d for quest %s",
                              objId, currentState.questName.c_str());
                     SendObjectiveUpdate(currentState, objState);
                     changesSent = true;
                 } else if (objState != prevObjIt->second) {
                     // Objective state changed
-                    _MESSAGE("QuestStateTracker: Objective %d changed for quest %s",
+                    QUESTSYNC_LOG_INFO("Objective %d changed for quest %s",
                              objId, currentState.questName.c_str());
                     SendObjectiveUpdate(currentState, objState);
                     changesSent = true;
@@ -461,7 +463,7 @@ bool QuestStateTracker::DetectQuestChanges(const std::unordered_map<UInt32, Ques
 std::string QuestStateTracker::CreateKeyValueString(const std::map<std::string, std::string>& data) const {
     std::stringstream ss;
     bool first = true;
-    
+
     for (const auto& [key, value] : data) {
         if (!first) {
             ss << ";";  // Use semicolon as separator
@@ -469,7 +471,7 @@ std::string QuestStateTracker::CreateKeyValueString(const std::map<std::string, 
         first = false;
         ss << key << "=" << value;
     }
-    
+
     return ss.str();
 }
 
@@ -537,7 +539,7 @@ bool QuestStateTracker::SendObjectiveUpdate(const QuestState& questState, const 
     // Create the payload string directly here
     std::stringstream ss;
     bool first = true;
-    
+
     for (const auto& [key, value] : payload) {
         if (!first) {
             ss << ";";  // Use semicolon as separator
@@ -545,7 +547,7 @@ bool QuestStateTracker::SendObjectiveUpdate(const QuestState& questState, const 
         first = false;
         ss << key << "=" << value;
     }
-    
+
     std::string payloadStr = ss.str();
 
     // Send the message

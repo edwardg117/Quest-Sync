@@ -151,19 +151,7 @@ public:
      */
     void SetClientVersion(int major, int minor);
 
-    /**
-     * @brief Enable or disable debug mode
-     *
-     * @param enable True to enable debug mode, false to disable
-     */
-    void SetDebugMode(bool enable);
 
-    /**
-     * @brief Check if debug mode is enabled
-     *
-     * @return true if debug mode is enabled, false otherwise
-     */
-    bool IsDebugMode() const;
 
     /**
      * @brief Process any pending messages
@@ -186,9 +174,6 @@ private:
 
     // Client version
     std::array<int, 2> m_clientVersion;
-
-    // Debug mode
-    bool m_debugMode;
 
     // Reconnection settings
     int m_reconnectInterval;

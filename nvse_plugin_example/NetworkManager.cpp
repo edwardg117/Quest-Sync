@@ -1,6 +1,7 @@
 #include "NetworkManager.h"
 #include "Config.h"
 #include "QuestStateTracker.h"
+#include "QuestSyncLogging.h"
 #include "nvse/PluginAPI.h"
 #include "nvse/GameAPI.h"
 #include <iostream>
@@ -22,10 +23,10 @@ NetworkManager::NetworkManager()
 
 // Initialize the network manager
 bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface* consoleInterface) {
-    _MESSAGE("NetworkManager::Initialize - Called");
+    QUESTSYNC_LOG_INFO("NetworkManager Initialize called");
 
     if (m_initialized) {
-        _MESSAGE("NetworkManager::Initialize - Already initialized");
+        QUESTSYNC_LOG_DEBUG("NetworkManager already initialized");
         return true;
     }
 
@@ -38,49 +39,41 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
 
         // Try to load the config file, if it fails, continue with defaults
         if (!config.Load(nvseInterface, "QuestSync.ini")) {
-            _MESSAGE("NetworkManager::Initialize - Failed to load config file, using defaults");
+            QUESTSYNC_LOG_WARNING("Failed to load config file, using defaults");
         }
 
         std::string serverAddress = config.GetString("Network.ServerAddress", "127.0.0.1");
         int serverPort = config.GetInt("Network.ServerPort", 25575);
 
-        _MESSAGE("NetworkManager::Initialize - Server address: %s, port: %d", serverAddress.c_str(), serverPort);
+        QUESTSYNC_LOG_INFO("Server address: %s, port: %d", serverAddress.c_str(), serverPort);
 
         // Initialize quest state tracker first to ensure it's available even if networking fails
         m_questStateTracker = &QuestStateTracker::GetInstance();
         if (!m_questStateTracker->Initialize(consoleInterface)) {
-            _MESSAGE("NetworkManager::Initialize - Failed to initialize quest state tracker");
+            QUESTSYNC_LOG_ERROR("Failed to initialize quest state tracker");
             return false;
         }
 
         // Set the network manager in the quest state tracker
         m_questStateTracker->SetNetworkManager(this);
-        _MESSAGE("NetworkManager::Initialize - Quest state tracker initialized and linked");
+        QUESTSYNC_LOG_INFO("Quest state tracker initialized and linked");
 
         // Create network client
         m_client = std::make_unique<NetworkClient>(serverAddress, serverPort);
 
         // Initialize client
         if (!m_client->Initialize()) {
-            _MESSAGE("NetworkManager::Initialize - Failed to initialize network client");
+            QUESTSYNC_LOG_ERROR("Failed to initialize network client");
 
             // Continue without network functionality rather than failing completely
-            _MESSAGE("NetworkManager::Initialize - Continuing without network functionality");
+            QUESTSYNC_LOG_WARNING("Continuing without network functionality");
             ShowNotification("Quest Sync network functionality disabled");
 
             m_initialized = true;
             return true;
         }
 
-        // Get debug mode setting
-        bool debugMode = config.GetBool("Network.DebugMode", false); // Default to false for release
-        if (debugMode) {
-            _MESSAGE("NetworkManager::Initialize - Debug mode enabled");
-            m_client->SetDebugMode(true);
-        } else {
-            _MESSAGE("NetworkManager::Initialize - Debug mode disabled");
-            m_client->SetDebugMode(false); // Explicitly set to false
-        }
+
 
         // Set connection callback
         m_client->SetConnectionStatusCallback([this](NetworkClient* client, bool connected) {
@@ -93,12 +86,12 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
         });
 
         m_initialized = true;
-        _MESSAGE("NetworkManager::Initialize - Initialized successfully");
+        QUESTSYNC_LOG_INFO("NetworkManager initialized successfully");
 
         return true;
     }
     catch (const std::exception& e) {
-        _MESSAGE("NetworkManager::Initialize - Exception: %s", e.what());
+        QUESTSYNC_LOG_ERROR("NetworkManager initialization exception: %s", e.what());
 
         // Show a notification to the user
         if (consoleInterface) {
@@ -111,7 +104,7 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
             if (!m_questStateTracker) {
                 m_questStateTracker = &QuestStateTracker::GetInstance();
                 if (m_questStateTracker->Initialize(consoleInterface)) {
-                    _MESSAGE("NetworkManager::Initialize - Quest state tracker initialized in fallback mode");
+                    QUESTSYNC_LOG_INFO("Quest state tracker initialized in fallback mode");
                     m_initialized = true;
                     return true;
                 }
@@ -122,16 +115,16 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
             }
         }
         catch (const std::exception& e) {
-            _MESSAGE("NetworkManager::Initialize - Failed to initialize quest state tracker in fallback mode: %s", e.what());
+            QUESTSYNC_LOG_ERROR("Failed to initialize quest state tracker in fallback mode: %s", e.what());
         }
         catch (...) {
-            _MESSAGE("NetworkManager::Initialize - Failed to initialize quest state tracker in fallback mode");
+            QUESTSYNC_LOG_ERROR("Failed to initialize quest state tracker in fallback mode");
         }
 
         return false;
     }
     catch (...) {
-        _MESSAGE("NetworkManager::Initialize - Unknown exception");
+        QUESTSYNC_LOG_ERROR("NetworkManager initialization unknown exception");
 
         // Show a notification to the user
         if (consoleInterface) {
@@ -143,7 +136,7 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
             if (!m_questStateTracker) {
                 m_questStateTracker = &QuestStateTracker::GetInstance();
                 if (m_questStateTracker->Initialize(consoleInterface)) {
-                    _MESSAGE("NetworkManager::Initialize - Quest state tracker initialized in fallback mode");
+                    QUESTSYNC_LOG_INFO("Quest state tracker initialized in fallback mode");
                     m_initialized = true;
                     return true;
                 }
@@ -154,7 +147,7 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
             }
         }
         catch (...) {
-            _MESSAGE("NetworkManager::Initialize - Failed to initialize quest state tracker in fallback mode");
+            QUESTSYNC_LOG_ERROR("Failed to initialize quest state tracker in fallback mode");
         }
 
         return false;
@@ -163,29 +156,29 @@ bool NetworkManager::Initialize(const void* nvseInterface, NVSEConsoleInterface*
 
 // Connect to the server
 bool NetworkManager::Connect() {
-    _MESSAGE("NetworkManager::Connect - Called");
+    QUESTSYNC_LOG_INFO("NetworkManager Connect called");
 
     if (!m_initialized) {
-        _MESSAGE("NetworkManager::Connect - Not initialized");
+        QUESTSYNC_LOG_ERROR("NetworkManager not initialized");
         return false;
     }
 
     // Check if client is valid
     if (!m_client) {
-        _MESSAGE("NetworkManager::Connect - Client is null");
+        QUESTSYNC_LOG_ERROR("Client is null");
         return false;
     }
 
     // Check if client is initialized
     if (!m_client->IsInitialized()) {
-        _MESSAGE("NetworkManager::Connect - Client is not initialized");
+        QUESTSYNC_LOG_ERROR("Client is not initialized");
         return false;
     }
 
     try {
-        _MESSAGE("NetworkManager::Connect - Attempting to connect to server");
+        QUESTSYNC_LOG_INFO("Attempting to connect to server");
         bool result = m_client->Connect();
-        _MESSAGE("NetworkManager::Connect - Connection attempt result: %s", result ? "success" : "failure");
+        QUESTSYNC_LOG_INFO("Connection attempt result: %s", result ? "success" : "failure");
 
         if (!result) {
             // Show a notification to the user that connection failed
@@ -198,7 +191,7 @@ bool NetworkManager::Connect() {
         return result;
     }
     catch (const std::exception& e) {
-        _MESSAGE("NetworkManager::Connect - Exception during connect: %s", e.what());
+        QUESTSYNC_LOG_ERROR("Exception during connect: %s", e.what());
 
         // Show a notification to the user
         std::string errorMsg = "Quest Sync connection error: " + std::string(e.what());
@@ -207,7 +200,7 @@ bool NetworkManager::Connect() {
         return false;
     }
     catch (...) {
-        _MESSAGE("NetworkManager::Connect - Unknown exception during connect");
+        QUESTSYNC_LOG_ERROR("Unknown exception during connect");
 
         // Show a notification to the user
         ShowNotification("Quest Sync connection error: Unknown exception");
@@ -218,31 +211,31 @@ bool NetworkManager::Connect() {
 
 // Disconnect from the server
 void NetworkManager::Disconnect() {
-    _MESSAGE("NetworkManager::Disconnect - Called");
+    QUESTSYNC_LOG_INFO("NetworkManager Disconnect called");
 
     // Clear message queue first to avoid sending messages during disconnect
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         std::queue<std::pair<MessageType, std::string>> empty;
         std::swap(m_messageQueue, empty);
-        _MESSAGE("NetworkManager::Disconnect - Message queue cleared");
+        QUESTSYNC_LOG_DEBUG("Message queue cleared");
     }
 
     // Disconnect client
     if (m_client) {
-        _MESSAGE("NetworkManager::Disconnect - Disconnecting client");
+        QUESTSYNC_LOG_DEBUG("Disconnecting client");
         try {
             m_client->Disconnect();
-            _MESSAGE("NetworkManager::Disconnect - Client disconnected successfully");
+            QUESTSYNC_LOG_INFO("Client disconnected successfully");
         }
         catch (const std::exception& e) {
-            _MESSAGE("NetworkManager::Disconnect - Exception during client disconnect: %s", e.what());
+            QUESTSYNC_LOG_ERROR("Exception during client disconnect: %s", e.what());
         }
         catch (...) {
-            _MESSAGE("NetworkManager::Disconnect - Unknown exception during client disconnect");
+            QUESTSYNC_LOG_ERROR("Unknown exception during client disconnect");
         }
     } else {
-        _MESSAGE("NetworkManager::Disconnect - Client is null");
+        QUESTSYNC_LOG_DEBUG("Client is null");
     }
 }
 
@@ -250,10 +243,10 @@ void NetworkManager::Disconnect() {
 bool NetworkManager::IsConnected() const {
     bool connected = m_client && m_client->IsConnected();
 
-    // Only log occasionally to avoid filling the log file, and only if client is in debug mode
+    // Only log occasionally to avoid filling the log file, and only in debug mode
     static int logCounter = 0;
-    if (m_client && m_client->IsDebugMode() && logCounter++ % 1000 == 0) {
-        _MESSAGE("NetworkManager::IsConnected - Status: %s", connected ? "connected" : "not connected");
+    if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG && logCounter++ % 1000 == 0) {
+        QUESTSYNC_LOG_DEBUG("Connection status: %s", connected ? "connected" : "not connected");
     }
 
     return connected;
@@ -265,18 +258,18 @@ void NetworkManager::ProcessMessages() {
     counter++;
 
     // Only log every 1000 frames to avoid log spam, and only if debug mode is enabled
-    bool shouldLog = (counter % 1000 == 0) && (m_client && m_client->IsDebugMode());
+    bool shouldLog = (counter % 1000 == 0) && (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG);
 
     if (!m_initialized) {
         if (shouldLog) {
-            _MESSAGE("NetworkManager::ProcessMessages - Not initialized");
+            QUESTSYNC_LOG_DEBUG("NetworkManager not initialized");
         }
         return;
     }
 
     if (!m_client) {
         if (shouldLog) {
-            _MESSAGE("NetworkManager::ProcessMessages - Client is null");
+            QUESTSYNC_LOG_DEBUG("Client is null");
         }
         return;
     }
@@ -284,7 +277,7 @@ void NetworkManager::ProcessMessages() {
     // Check if client is initialized
     if (!m_client->IsInitialized()) {
         if (shouldLog) {
-            _MESSAGE("NetworkManager::ProcessMessages - Client is not initialized");
+            QUESTSYNC_LOG_DEBUG("Client is not initialized");
         }
         return;
     }
@@ -296,7 +289,7 @@ void NetworkManager::ProcessMessages() {
         // Only log connection status changes or occasionally
         static bool lastConnectionStatus = false;
         if (lastConnectionStatus != isConnected || shouldLog) {
-            _MESSAGE("NetworkManager::ProcessMessages - Connection status: %s", isConnected ? "connected" : "not connected");
+            QUESTSYNC_LOG_DEBUG("Connection status: %s", isConnected ? "connected" : "not connected");
             lastConnectionStatus = isConnected;
         }
 
@@ -312,7 +305,7 @@ void NetworkManager::ProcessMessages() {
 
             // Try to reconnect based on the configured interval
             if (elapsed >= reconnectInterval) {
-                _MESSAGE("NetworkManager::ProcessMessages - Attempting to reconnect (interval: %d seconds)", reconnectInterval);
+                QUESTSYNC_LOG_INFO("Attempting to reconnect (interval: %d seconds)", reconnectInterval);
                 lastReconnectAttempt = now;
 
                 // Only show notification on first reconnect attempt
@@ -323,10 +316,10 @@ void NetworkManager::ProcessMessages() {
                 }
 
                 if (Connect()) {
-                    _MESSAGE("NetworkManager::ProcessMessages - Reconnected successfully");
+                    QUESTSYNC_LOG_INFO("Reconnected successfully");
                     firstReconnectAttempt = true; // Reset for next time
                 } else {
-                    _MESSAGE("NetworkManager::ProcessMessages - Reconnection failed");
+                    QUESTSYNC_LOG_WARNING("Reconnection failed");
                 }
             }
 
@@ -340,7 +333,7 @@ void NetworkManager::ProcessMessages() {
         ProcessQueuedMessages();
     }
     catch (const std::exception& e) {
-        _MESSAGE("NetworkManager::ProcessMessages - Exception: %s", e.what());
+        QUESTSYNC_LOG_ERROR("ProcessMessages exception: %s", e.what());
 
         // Only show notification occasionally to avoid spamming the user
         static int errorCounter = 0;
@@ -349,7 +342,7 @@ void NetworkManager::ProcessMessages() {
         }
     }
     catch (...) {
-        _MESSAGE("NetworkManager::ProcessMessages - Unknown exception");
+        QUESTSYNC_LOG_ERROR("ProcessMessages unknown exception");
 
         // Only show notification occasionally to avoid spamming the user
         static int errorCounter = 0;
@@ -368,8 +361,8 @@ void NetworkManager::ProcessQueuedMessages() {
     // Check connection status first
     if (!IsConnected()) {
         // Only log disconnected state occasionally and only in debug mode
-        if (m_client && m_client->IsDebugMode() && logCounter++ % 1000 == 0) {
-            _MESSAGE("NetworkManager::ProcessQueuedMessages - Not connected, cannot process messages");
+        if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG && logCounter++ % 1000 == 0) {
+            QUESTSYNC_LOG_DEBUG("Not connected, cannot process messages");
         }
         return;
     }
@@ -377,12 +370,12 @@ void NetworkManager::ProcessQueuedMessages() {
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
     // Only log when there are messages or occasionally, and only in debug mode
-    if (m_client && m_client->IsDebugMode() && (!m_messageQueue.empty() || logCounter++ % 1000 == 0)) {
+    if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG && (!m_messageQueue.empty() || logCounter++ % 1000 == 0)) {
         shouldLog = true;
     }
 
     if (shouldLog && !m_messageQueue.empty()) {
-        _MESSAGE("NetworkManager: Queue size: %d", m_messageQueue.size());
+        QUESTSYNC_LOG_DEBUG("Queue size: %d", m_messageQueue.size());
     }
 
     if (m_messageQueue.empty()) {
@@ -398,7 +391,7 @@ void NetworkManager::ProcessQueuedMessages() {
         auto [type, payload] = m_messageQueue.front();
 
         if (shouldLog) {
-            _MESSAGE("NetworkManager: Processing message type %d", static_cast<int>(type));
+            QUESTSYNC_LOG_DEBUG("Processing message type %d", static_cast<int>(type));
         }
 
         // Send the message
@@ -406,15 +399,15 @@ void NetworkManager::ProcessQueuedMessages() {
         try {
             success = SendMessage(type, payload);
             if (shouldLog) {
-                _MESSAGE("NetworkManager: Message send %s", success ? "successful" : "failed");
+                QUESTSYNC_LOG_DEBUG("Message send %s", success ? "successful" : "failed");
             }
         }
         catch (const std::exception& e) {
-            _MESSAGE("NetworkManager: Exception during send: %s", e.what());
+            QUESTSYNC_LOG_ERROR("Exception during send: %s", e.what());
             success = false;
         }
         catch (...) {
-            _MESSAGE("NetworkManager: Unknown exception during send");
+            QUESTSYNC_LOG_ERROR("Unknown exception during send");
             success = false;
         }
 
@@ -425,20 +418,20 @@ void NetworkManager::ProcessQueuedMessages() {
         } else {
             // Check if we're still connected
             if (!IsConnected()) {
-                _MESSAGE("NetworkManager: Connection lost during message processing");
+                QUESTSYNC_LOG_WARNING("Connection lost during message processing");
                 connectionLost = true;
 
                 // Don't remove the message from the queue so we can retry after reconnecting
                 // But limit how many messages we keep to avoid memory issues
                 if (m_messageQueue.size() > 20) {
-                    _MESSAGE("NetworkManager: Queue too large, removing oldest message");
+                    QUESTSYNC_LOG_WARNING("Queue too large, removing oldest message");
                     m_messageQueue.pop();
                 }
 
                 break;
             } else {
                 // If we're still connected but send failed, remove the message to avoid getting stuck
-                _MESSAGE("NetworkManager: Removing failed message from queue");
+                QUESTSYNC_LOG_WARNING("Removing failed message from queue");
                 m_messageQueue.pop();
                 messageCount++;
             }
@@ -450,7 +443,7 @@ void NetworkManager::ProcessQueuedMessages() {
 
     // Log if there are still messages in the queue
     if (shouldLog && !m_messageQueue.empty()) {
-        _MESSAGE("NetworkManager: %d messages still in queue", m_messageQueue.size());
+        QUESTSYNC_LOG_DEBUG("%d messages still in queue", m_messageQueue.size());
     }
 }
 
@@ -476,21 +469,21 @@ bool NetworkManager::SendMessage(MessageType type, const std::string& payload) {
 void NetworkManager::QueueMessage(MessageType type, const std::string& payload) {
     // Only log important message types or occasionally, and only in debug mode
     static int logCounter = 0;
-    bool shouldLog = m_client && m_client->IsDebugMode() &&
+    bool shouldLog = GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG &&
                     (type == MessageType::ERROR_MESSAGE ||
                      type == MessageType::HANDSHAKE_REQUEST ||
                      type == MessageType::HANDSHAKE_RESPONSE ||
                      logCounter++ % 100 == 0);
 
     if (shouldLog) {
-        _MESSAGE("NetworkManager::QueueMessage - Type: %d, Payload: %s", static_cast<int>(type), payload.c_str());
+        QUESTSYNC_LOG_DEBUG("QueueMessage - Type: %d, Payload: %s", static_cast<int>(type), payload.c_str());
     }
 
     std::lock_guard<std::mutex> lock(m_queueMutex);
     m_messageQueue.push(std::make_pair(type, payload));
 
     if (shouldLog) {
-        _MESSAGE("NetworkManager: Queue size after adding message: %d", m_messageQueue.size());
+        QUESTSYNC_LOG_DEBUG("Queue size after adding message: %d", m_messageQueue.size());
     }
 }
 
@@ -511,26 +504,26 @@ void NetworkManager::Reset() {
         m_questStateTracker->Reset();
     }
 
-    _MESSAGE("NetworkManager: Reset completed");
+    QUESTSYNC_LOG_INFO("NetworkManager reset completed");
 }
 
 // Handle save game loading
 void NetworkManager::HandleSaveGameLoaded() {
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Called");
+    QUESTSYNC_LOG_INFO("NetworkManager::HandleSaveGameLoaded - Called");
 
     // Check if we're already connected
     if (m_client && m_client->IsConnected()) {
-        _MESSAGE("NetworkManager::HandleSaveGameLoaded - Already connected, sending heartbeat to verify connection");
+        QUESTSYNC_LOG_INFO("NetworkManager::HandleSaveGameLoaded - Already connected, sending heartbeat to verify connection");
 
         // Send a heartbeat to verify the connection is still valid
         if (m_client->SendMessage(MessageType::HEARTBEAT, "")) {
-            _MESSAGE("NetworkManager::HandleSaveGameLoaded - Heartbeat sent successfully, maintaining connection");
+            QUESTSYNC_LOG_INFO("NetworkManager::HandleSaveGameLoaded - Heartbeat sent successfully, maintaining connection");
 
             // Clear any pending messages to start fresh
             {
                 std::lock_guard<std::mutex> lock(m_queueMutex);
                 if (!m_messageQueue.empty()) {
-                    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Clearing %d pending messages", m_messageQueue.size());
+                    QUESTSYNC_LOG_DEBUG("NetworkManager::HandleSaveGameLoaded - Clearing %d pending messages", m_messageQueue.size());
                     std::queue<std::pair<MessageType, std::string>> empty;
                     std::swap(m_messageQueue, empty);
                 }
@@ -540,36 +533,36 @@ void NetworkManager::HandleSaveGameLoaded() {
             return;
         }
 
-        _MESSAGE("NetworkManager::HandleSaveGameLoaded - Heartbeat failed, will disconnect and reconnect");
+        QUESTSYNC_LOG_WARNING("NetworkManager::HandleSaveGameLoaded - Heartbeat failed, will disconnect and reconnect");
     }
 
     // If we get here, we need to disconnect and reconnect
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Disconnecting to reset connection state");
+    QUESTSYNC_LOG_INFO("NetworkManager::HandleSaveGameLoaded - Disconnecting to reset connection state");
     Disconnect();
 
     // Reduce delay before reconnecting
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Waiting before reconnecting");
+    QUESTSYNC_LOG_DEBUG("NetworkManager::HandleSaveGameLoaded - Waiting before reconnecting");
     std::this_thread::sleep_for(std::chrono::milliseconds(300)); // Further reduced from 500ms
 
     // Clear any pending messages to start fresh
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (!m_messageQueue.empty()) {
-            _MESSAGE("NetworkManager::HandleSaveGameLoaded - Clearing %d pending messages", m_messageQueue.size());
+            QUESTSYNC_LOG_DEBUG("NetworkManager::HandleSaveGameLoaded - Clearing %d pending messages", m_messageQueue.size());
             std::queue<std::pair<MessageType, std::string>> empty;
             std::swap(m_messageQueue, empty);
         }
     }
 
     // Try to reconnect
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Attempting to reconnect");
+    QUESTSYNC_LOG_INFO("NetworkManager::HandleSaveGameLoaded - Attempting to reconnect");
 
     // Get reconnect settings from config
     Config& config = Config::GetInstance();
     int maxReconnectAttempts = config.GetInt("Network.SaveGameReconnectAttempts", 2); // Default to 2 attempts for save game loading
     int reconnectDelayMs = config.GetInt("Network.SaveGameReconnectDelay", 1000); // Default to 1 second between attempts
 
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Using max reconnect attempts: %d, delay: %d ms",
+    QUESTSYNC_LOG_DEBUG("NetworkManager::HandleSaveGameLoaded - Using max reconnect attempts: %d, delay: %d ms",
              maxReconnectAttempts, reconnectDelayMs);
 
     int reconnectAttempts = 0;
@@ -577,7 +570,7 @@ void NetworkManager::HandleSaveGameLoaded() {
     // Only try to reconnect if the server is likely to be running
     while (reconnectAttempts < maxReconnectAttempts) {
         if (Connect()) {
-            _MESSAGE("NetworkManager::HandleSaveGameLoaded - Reconnected successfully on attempt %d", reconnectAttempts + 1);
+            QUESTSYNC_LOG_INFO("NetworkManager::HandleSaveGameLoaded - Reconnected successfully on attempt %d", reconnectAttempts + 1);
             ShowNotification("Connected to Quest Sync server");
 
             // The Connect method now handles the handshake, so we don't need to verify with a heartbeat
@@ -587,7 +580,7 @@ void NetworkManager::HandleSaveGameLoaded() {
             // Connection is good, we're done
             return;
         } else {
-            _MESSAGE("NetworkManager::HandleSaveGameLoaded - Reconnect attempt %d failed", reconnectAttempts + 1);
+            QUESTSYNC_LOG_WARNING("NetworkManager::HandleSaveGameLoaded - Reconnect attempt %d failed", reconnectAttempts + 1);
         }
 
         reconnectAttempts++;
@@ -599,7 +592,7 @@ void NetworkManager::HandleSaveGameLoaded() {
     }
 
     // If we get here, all reconnect attempts failed
-    _MESSAGE("NetworkManager::HandleSaveGameLoaded - Failed to establish a connection after %d attempts", maxReconnectAttempts);
+    QUESTSYNC_LOG_WARNING("NetworkManager::HandleSaveGameLoaded - Failed to establish a connection after %d attempts", maxReconnectAttempts);
 
     // Only show notification if we actually tried to connect (maxReconnectAttempts > 0)
     if (maxReconnectAttempts > 0) {
@@ -624,14 +617,14 @@ void NetworkManager::OnMessageReceived(NetworkClient* client, const Message& mes
             // Forward to quest state tracker
             if (m_questStateTracker) {
                 if (m_questStateTracker->ProcessQuestStateMessage(message)) {
-                    _MESSAGE("Successfully processed quest state message of type %d",
+                    QUESTSYNC_LOG_DEBUG("Successfully processed quest state message of type %d",
                              static_cast<int>(message.GetType()));
                 } else {
-                    _MESSAGE("Failed to process quest state message of type %d",
+                    QUESTSYNC_LOG_ERROR("Failed to process quest state message of type %d",
                              static_cast<int>(message.GetType()));
                 }
             } else {
-                _MESSAGE("Cannot process quest state message: QuestStateTracker is NULL");
+                QUESTSYNC_LOG_ERROR("Cannot process quest state message: QuestStateTracker is NULL");
             }
             break;
 
@@ -639,14 +632,14 @@ void NetworkManager::OnMessageReceived(NetworkClient* client, const Message& mes
             // Handle error message
             {
                 std::string errorMsg = message.GetPayloadAsString();
-                _MESSAGE("Error from server: %s", errorMsg.c_str());
+                QUESTSYNC_LOG_WARNING("Error from server: %s", errorMsg.c_str());
                 ShowNotification("Error from server: " + errorMsg);
             }
             break;
 
         default:
             // Unknown message type
-            _MESSAGE("Received message of type %d", static_cast<int>(message.GetType()));
+            QUESTSYNC_LOG_WARNING("Received message of type %d", static_cast<int>(message.GetType()));
             break;
     }
 }
@@ -664,16 +657,16 @@ void NetworkManager::ShowNotification(const std::string& message) {
         std::string scriptCmd = "MessageEx \"" + message + "\"";
 
         // Log the command for debugging
-        _MESSAGE("Running script command: %s", scriptCmd.c_str());
+        QUESTSYNC_LOG_DEBUG("Running script command: %s", scriptCmd.c_str());
 
         // Run the script command
         m_consoleInterface->RunScriptLine(scriptCmd.c_str(), nullptr);
     } else {
-        _MESSAGE("Console interface is null, cannot use RunScriptLine for toast notification");
+        QUESTSYNC_LOG_DEBUG("Console interface is null, cannot use RunScriptLine for toast notification");
     }
 
     // Method 2: Use QueueUIMessage directly as a fallback
-    _MESSAGE("Using direct QueueUIMessage call for toast notification");
+    QUESTSYNC_LOG_DEBUG("Using direct QueueUIMessage call for toast notification");
     // Parameters: message, emotion (0=happy), ddsPath, soundName, msgTime, maybeNextToDisplay
     QueueUIMessage(message.c_str(), 0, NULL, NULL, 2.0f, false);
 }
@@ -681,13 +674,13 @@ void NetworkManager::ShowNotification(const std::string& message) {
 // Connection status changed callback
 void NetworkManager::OnConnectionStatusChanged(NetworkClient* client, bool connected) {
     if (connected) {
-        _MESSAGE("Connected to Quest Sync server");
+        QUESTSYNC_LOG_INFO("Connected to Quest Sync server");
 
         // Show notification in game
         ShowNotification("Connected to Quest Sync server!");
     }
     else {
-        _MESSAGE("Disconnected from Quest Sync server");
+        QUESTSYNC_LOG_INFO("Disconnected from Quest Sync server");
 
         // Show notification in game
         ShowNotification("Disconnected from Quest Sync server");

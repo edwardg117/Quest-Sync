@@ -352,6 +352,7 @@
     <ClCompile Include="Message.cpp" />
     <ClCompile Include="NetworkClient.cpp" />
     <ClCompile Include="NetworkManager.cpp" />
+    <ClCompile Include="QuestSyncLogging.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\nvse\nvse\CommandTable.h" />
@@ -384,6 +385,7 @@
     <ClInclude Include="NetworkManager.h" />
     <ClInclude Include="QuestManager.h" />
     <ClInclude Include="QuestStateTracker.h" />
+    <ClInclude Include="QuestSyncLogging.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="exports.def" />

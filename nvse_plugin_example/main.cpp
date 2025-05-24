@@ -11,6 +11,7 @@
 #include "NetworkManager.h"
 #include "Config.h"
 #include "QuestStateTracker.h"
+#include "QuestSyncLogging.h"
 
 IDebugLog		gLog("QuestSync.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
@@ -92,11 +93,13 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	switch (msg->type)
 	{
 	case NVSEMessagingInterface::kMessage_PostLoad:
-		_MESSAGE("Post-load");
+		QUESTSYNC_LOG_INFO("Post-load");
+		// Initialize log level from config
+		SetLogLevelFromConfig();
 		break;
 
 	case NVSEMessagingInterface::kMessage_ExitGame:
-		_MESSAGE("Exit game - Cleaning up network resources");
+		QUESTSYNC_LOG_INFO("Exit game - Cleaning up network resources");
 		// First reset state to clear any pending messages
 		NetworkManager::GetInstance().Reset();
 		// Then disconnect from server when exiting game
@@ -106,7 +109,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_ExitToMainMenu:
-		_MESSAGE("Exit to main menu - Cleaning up network resources");
+		QUESTSYNC_LOG_INFO("Exit to main menu - Cleaning up network resources");
 		// First reset state to clear any pending messages
 		NetworkManager::GetInstance().Reset();
 		// Then disconnect from server when exiting to main menu
@@ -116,25 +119,25 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_LoadGame:
-		_MESSAGE("Load game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		QUESTSYNC_LOG_INFO("Load game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
 		break;
 
 	case NVSEMessagingInterface::kMessage_SaveGame:
-		_MESSAGE("Save game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		QUESTSYNC_LOG_DEBUG("Save game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
 		break;
 
 #if EDITOR
 	case NVSEMessagingInterface::kMessage_ScriptEditorPrecompile:
-		_MESSAGE("Script editor precompile");
+		QUESTSYNC_LOG_DEBUG("Script editor precompile");
 		break;
 #endif
 
 	case NVSEMessagingInterface::kMessage_PreLoadGame:
-		_MESSAGE("Pre-load game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		QUESTSYNC_LOG_DEBUG("Pre-load game: %s", msg->data ? static_cast<const char*>(msg->data) : "");
 		break;
 
 	case NVSEMessagingInterface::kMessage_ExitGame_Console:
-		_MESSAGE("Exit game via console - Cleaning up network resources");
+		QUESTSYNC_LOG_INFO("Exit game via console - Cleaning up network resources");
 		// First reset state to clear any pending messages
 		NetworkManager::GetInstance().Reset();
 		// Then disconnect from server when exiting game via console
@@ -144,70 +147,70 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_PostLoadGame:
-		_MESSAGE("Post-load game");
+		QUESTSYNC_LOG_INFO("Post-load game");
 		// Handle save game loading to ensure connection is stable before sending quest updates
 		NetworkManager::GetInstance().HandleSaveGameLoaded();
 		break;
 
 	case NVSEMessagingInterface::kMessage_PostPostLoad:
-		_MESSAGE("Post-post-load");
+		QUESTSYNC_LOG_DEBUG("Post-post-load");
 		break;
 
 	case NVSEMessagingInterface::kMessage_RuntimeScriptError:
-		_MESSAGE("Runtime script error: %s", msg->data ? static_cast<const char*>(msg->data) : "");
+		QUESTSYNC_LOG_ERROR("Runtime script error: %s", msg->data ? static_cast<const char*>(msg->data) : "");
 		break;
 
 	case NVSEMessagingInterface::kMessage_DeleteGame:
-		_MESSAGE("Delete game");
+		QUESTSYNC_LOG_DEBUG("Delete game");
 		break;
 
 	case NVSEMessagingInterface::kMessage_RenameGame:
-		_MESSAGE("Rename game");
+		QUESTSYNC_LOG_DEBUG("Rename game");
 		break;
 
 	case NVSEMessagingInterface::kMessage_RenameNewGame:
-		_MESSAGE("Rename new game");
+		QUESTSYNC_LOG_DEBUG("Rename new game");
 		break;
 
 	case NVSEMessagingInterface::kMessage_NewGame:
-		_MESSAGE("New game");
+		QUESTSYNC_LOG_INFO("New game");
 		break;
 
 	case NVSEMessagingInterface::kMessage_DeleteGameName:
-		_MESSAGE("Delete game name");
+		QUESTSYNC_LOG_DEBUG("Delete game name");
 		break;
 
 	case NVSEMessagingInterface::kMessage_RenameGameName:
-		_MESSAGE("Rename game name");
+		QUESTSYNC_LOG_DEBUG("Rename game name");
 		break;
 
 	case NVSEMessagingInterface::kMessage_RenameNewGameName:
-		_MESSAGE("Rename new game name");
+		QUESTSYNC_LOG_DEBUG("Rename new game name");
 		break;
 
 	case NVSEMessagingInterface::kMessage_DeferredInit:
-		_MESSAGE("Deferred init - Initializing Quest Sync Network Client");
+		QUESTSYNC_LOG_INFO("Deferred init - Initializing Quest Sync Network Client");
 
 		// Initialize and connect to the server
 		if (NetworkManager::GetInstance().Initialize(static_cast<const void*>(g_nvseInterface), g_consoleInterface)) {
-			_MESSAGE("NetworkManager initialized successfully, attempting to connect");
+			QUESTSYNC_LOG_INFO("NetworkManager initialized successfully, attempting to connect");
 			if (NetworkManager::GetInstance().Connect()) {
-				_MESSAGE("Connected to Quest Sync server");
+				QUESTSYNC_LOG_INFO("Connected to Quest Sync server");
 				// Check connection status again to verify
-				_MESSAGE("Connection status check: %s",
+				QUESTSYNC_LOG_DEBUG("Connection status check: %s",
 					NetworkManager::GetInstance().IsConnected() ? "still connected" : "connection lost");
 			} else {
-				_MESSAGE("Failed to connect to Quest Sync server");
+				QUESTSYNC_LOG_WARNING("Failed to connect to Quest Sync server");
 				Console_Print("Failed to connect to the Quest Sync server. Will try to reconnect automatically.");
 			}
 		} else {
-			_MESSAGE("Failed to initialize Quest Sync Network Manager");
+			QUESTSYNC_LOG_ERROR("Failed to initialize Quest Sync Network Manager");
 			Console_Print("Failed to initialize Quest Sync. Check the log for details.");
 		}
 		break;
 
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache:
-		_MESSAGE("Clear script data cache");
+		QUESTSYNC_LOG_DEBUG("Clear script data cache");
 		break;
 
 	case NVSEMessagingInterface::kMessage_MainGameLoop:
@@ -215,10 +218,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 			// Process network messages and update quest states
 			loopCounter++;
 
-			// Only log every 1000 frames to avoid log spam, and only if debug mode is enabled
-			NetworkClient* client = NetworkManager::GetInstance().GetClient();
-			if (client && client->IsDebugMode() && loopCounter % 1000 == 0) {
-				_MESSAGE("Main game loop - Processing network messages (frame %d)", loopCounter);
+			// Only log every 1000 frames to avoid log spam, and only in debug mode
+			if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG && loopCounter % 1000 == 0) {
+				QUESTSYNC_LOG_DEBUG("Main game loop - Processing network messages (frame %d)", loopCounter);
 			}
 
 			// Process network messages
@@ -233,14 +235,14 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		break;
 
 	case NVSEMessagingInterface::kMessage_ScriptCompile:
-		_MESSAGE("Script compile");
+		QUESTSYNC_LOG_DEBUG("Script compile");
 		break;
 
 	case NVSEMessagingInterface::kMessage_EventListDestroyed:
 		break;
 
 	case NVSEMessagingInterface::kMessage_PostQueryPlugins:
-		_MESSAGE("Post query plugins");
+		QUESTSYNC_LOG_DEBUG("Post query plugins");
 		break;
 
 	default:
@@ -250,7 +252,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
-	_MESSAGE("query");
+	QUESTSYNC_LOG_INFO("Plugin query");
 
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
@@ -260,7 +262,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	// version checks
 	if (nvse->nvseVersion < PACKED_NVSE_VERSION)
 	{
-		_ERROR("NVSE version too old (got %08X expected at least %08X)", nvse->nvseVersion, PACKED_NVSE_VERSION);
+		QUESTSYNC_LOG_ERROR("NVSE version too old (got %08X expected at least %08X)", nvse->nvseVersion, PACKED_NVSE_VERSION);
 		return false;
 	}
 
@@ -268,13 +270,13 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	{
 		if (nvse->runtimeVersion < RUNTIME_VERSION_1_4_0_525)
 		{
-			_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
+			QUESTSYNC_LOG_ERROR("Incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
 			return false;
 		}
 
 		if (nvse->isNogore)
 		{
-			_ERROR("NoGore is not supported");
+			QUESTSYNC_LOG_ERROR("NoGore is not supported");
 			return false;
 		}
 	}
@@ -282,7 +284,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	{
 		if (nvse->editorVersion < CS_VERSION_1_4_0_518)
 		{
-			_ERROR("incorrect editor version (got %08X need at least %08X)", nvse->editorVersion, CS_VERSION_1_4_0_518);
+			QUESTSYNC_LOG_ERROR("Incorrect editor version (got %08X need at least %08X)", nvse->editorVersion, CS_VERSION_1_4_0_518);
 			return false;
 		}
 	}
@@ -294,7 +296,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 
 bool NVSEPlugin_Load(NVSEInterface* nvse)
 {
-	_MESSAGE("load");
+	QUESTSYNC_LOG_INFO("Plugin load");
 
 	g_pluginHandle = nvse->GetPluginHandle();
 
@@ -317,9 +319,9 @@ bool NVSEPlugin_Load(NVSEInterface* nvse)
 		g_serializationInterface = static_cast<NVSESerializationInterface*>(nvse->QueryInterface(kInterface_Serialization));
 		g_consoleInterface = static_cast<NVSEConsoleInterface*>(nvse->QueryInterface(kInterface_Console));
 		if (g_consoleInterface) {
-			_MESSAGE("Console interface obtained successfully");
+			QUESTSYNC_LOG_INFO("Console interface obtained successfully");
 		} else {
-			_MESSAGE("WARNING: Failed to obtain console interface");
+			QUESTSYNC_LOG_WARNING("Failed to obtain console interface");
 		}
 		ExtractArgsEx = g_script->ExtractArgsEx;
 
