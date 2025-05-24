@@ -2,11 +2,14 @@
 #include <iostream>
 #include <algorithm>
 #include "Logger.h"
+#include "Config.h"
+#include "SessionManager.h"
+#include "RateLimiter.h"
 
 // Constructor
 TCPServer::TCPServer(const std::string& ipAddress, int port, MessageHandler messageHandler)
     : m_ipAddress(ipAddress), m_port(port), m_messageHandler(messageHandler),
-      m_running(false), m_listenSocket(INVALID_SOCKET) {
+      m_running(false), m_listenSocket(INVALID_SOCKET), m_cleanupRunning(false) {
     // Initialize the master set
     FD_ZERO(&m_masterSet);
 }
@@ -17,6 +20,9 @@ TCPServer::~TCPServer() {
     if (m_running) {
         Stop();
     }
+
+    // Stop cleanup tasks if running
+    StopCleanupTasks();
 }
 
 // Initialize the server
@@ -53,6 +59,9 @@ bool TCPServer::Start() {
     // Start the worker thread
     m_workerThread = std::thread(&TCPServer::ServerLoop, this);
 
+    // Start background cleanup tasks
+    StartCleanupTasks();
+
     LOG_INFO("Server started on " + (m_ipAddress.empty() ? "0.0.0.0" : m_ipAddress) + ":" + std::to_string(m_port));
 
     return true;
@@ -68,6 +77,9 @@ void TCPServer::Stop() {
 
     // Clear the running flag first to prevent error logging during shutdown
     m_running = false;
+
+    // Stop cleanup tasks first
+    StopCleanupTasks();
 
     // Disconnect all clients first
     {
@@ -347,8 +359,46 @@ bool TCPServer::HandleClientData(SOCKET clientSocket) {
                 }
             }
 
-            // Only process messages from authenticated clients
+            // For authenticated clients, validate session token if authentication is enabled
             if (authenticated) {
+                Config& config = Config::GetInstance();
+                bool authenticationEnabled = config.GetBool("Security.EnableAuthentication", false);
+
+                if (authenticationEnabled) {
+                    // Validate session token for authenticated clients
+                    SessionManager& sessionManager = SessionManager::GetInstance();
+                    bool sessionValid = false;
+
+                    // Check if this message type requires session token validation
+                    if (RequiresSessionTokenValidation(message->GetType())) {
+                        // Validate the session token from the message header
+                        std::string messageToken = message->GetSessionToken();
+                        if (!messageToken.empty()) {
+                            sessionValid = sessionManager.ValidateSessionToken(clientSocket, messageToken);
+                            if (sessionValid) {
+                                LOG_DEBUG("Session token validated for client " + std::to_string(clientSocket) +
+                                         " message type " + std::to_string(static_cast<int>(message->GetType())));
+                            } else {
+                                LOG_WARNING("Invalid session token for client " + std::to_string(clientSocket) +
+                                           " message type " + std::to_string(static_cast<int>(message->GetType())));
+                            }
+                        } else {
+                            LOG_WARNING("Missing session token for client " + std::to_string(clientSocket) +
+                                       " message type " + std::to_string(static_cast<int>(message->GetType())));
+                        }
+                    } else {
+                        // System messages that don't require token validation
+                        sessionValid = true;
+                        LOG_DEBUG("Message type " + std::to_string(static_cast<int>(message->GetType())) +
+                                 " from client " + std::to_string(clientSocket) + " - no token validation required");
+                    }
+
+                    if (!sessionValid) {
+                        LOG_WARNING("Received message from client with invalid/missing session token: " + std::to_string(clientSocket));
+                        return false;
+                    }
+                }
+
                 if (m_messageHandler) {
                     m_messageHandler(this, clientSocket, *message);
                 }
@@ -379,6 +429,9 @@ void TCPServer::DisconnectClient(SOCKET clientSocket) {
         m_clients.erase(clientSocket);
     }
 
+    // Clean up session for this client
+    SessionManager::GetInstance().RemoveSession(clientSocket);
+
     // Close the socket
     closesocket(clientSocket);
 
@@ -387,9 +440,12 @@ void TCPServer::DisconnectClient(SOCKET clientSocket) {
 
 // Process a handshake request
 void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& request) {
+    // Get client IP address
+    std::string clientIP = GetClientIP(clientSocket);
+
     // Log client version
     LOG_INFO("Processing handshake from client " + std::to_string(clientSocket) +
-             ", version: " + Version::VersionToString(request.clientVersion));
+             " (IP: " + clientIP + "), version: " + Version::VersionToString(request.clientVersion));
 
     // Check if the client version is compatible
     bool accepted = Version::IsCompatible(request.clientVersion);
@@ -401,6 +457,75 @@ void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& re
              ", supported client versions: " + Version::VersionToString(Version::MinClientVersion) +
              " to " + Version::VersionToString(Version::MaxClientVersion));
 
+    // Check authentication if enabled and version is compatible
+    std::string sessionToken;
+    if (accepted) {
+        Config& config = Config::GetInstance();
+        bool authenticationEnabled = config.GetBool("Security.EnableAuthentication", false);
+
+        if (authenticationEnabled) {
+            // Check rate limiting first
+            bool rateLimitEnabled = config.GetBool("Security.RateLimitEnabled", true);
+            if (rateLimitEnabled) {
+                int maxAttempts = config.GetInt("Security.RateLimitAttempts", 5);
+                int windowSeconds = config.GetInt("Security.RateLimitWindow", 300);
+
+                RateLimiter& rateLimiter = RateLimiter::GetInstance();
+                if (!rateLimiter.IsAllowed(clientIP, maxAttempts, windowSeconds)) {
+                    accepted = false;
+                    compatibilityMessage = "Rate limit exceeded: Too many authentication attempts";
+                    LOG_WARNING("Rate limit exceeded for client " + std::to_string(clientSocket) + " (IP: " + clientIP + ")");
+
+                    // Prepare response and return early (don't record this attempt)
+                    std::string message = compatibilityMessage;
+                    HandshakeResponse response(accepted, message);
+
+                    Message responseMsg(MessageType::HANDSHAKE_RESPONSE);
+                    std::vector<uint8_t> payload = response.Serialize();
+                    responseMsg.SetPayload(payload);
+
+                    SendToClient(clientSocket, responseMsg);
+                    LOG_INFO("Handshake response sent: REJECTED (rate limited)");
+                    return;
+                }
+
+                // Record the authentication attempt (only if not rate limited)
+                rateLimiter.RecordAttempt(clientIP);
+            }
+
+            std::string serverPassword = config.GetString("Security.Password", "");
+
+            LOG_DEBUG("Authentication enabled, validating credentials");
+
+            // Validate that server has a non-empty password when authentication is enabled
+            if (serverPassword.empty()) {
+                accepted = false;
+                compatibilityMessage = "Authentication failed: Server password not configured";
+                LOG_ERROR("Authentication enabled but server password is empty");
+            }
+            // Check if passwords match
+            else if (request.password != serverPassword) {
+                accepted = false;
+                compatibilityMessage = "Authentication failed: Invalid password";
+                LOG_WARNING("Client authentication failed: invalid credentials");
+            } else {
+                LOG_INFO("Client authentication successful");
+
+                // Generate session token
+                SessionManager& sessionManager = SessionManager::GetInstance();
+                int tokenExpiry = config.GetInt("Security.SessionTokenExpiry", 3600);
+                sessionToken = sessionManager.GenerateSessionToken(clientSocket, clientIP, tokenExpiry);
+
+                // Reset rate limit for successful authentication
+                if (config.GetBool("Security.RateLimitEnabled", true)) {
+                    RateLimiter::GetInstance().ResetRateLimit(clientIP);
+                }
+            }
+        } else {
+            LOG_DEBUG("Authentication disabled, accepting client");
+        }
+    }
+
     // Prepare the response message
     std::string message;
     if (accepted) {
@@ -410,8 +535,10 @@ void TCPServer::ProcessHandshake(SOCKET clientSocket, const HandshakeRequest& re
         message = compatibilityMessage;
     }
 
-    // Create the handshake response
-    HandshakeResponse response(accepted, message);
+    // Create the handshake response with session token and expiry time
+    Config& config = Config::GetInstance();
+    int tokenExpiry = config.GetInt("Security.SessionTokenExpiry", 3600);
+    HandshakeResponse response(accepted, message, sessionToken, accepted ? tokenExpiry : 0);
 
     // Log the response
     LOG_INFO("Handshake response: " + std::string(accepted ? "ACCEPTED" : "REJECTED") +
@@ -506,3 +633,97 @@ bool TCPServer::CreateListenSocket() {
     return true;
 }
 
+// Get the IP address of a client socket
+std::string TCPServer::GetClientIP(SOCKET clientSocket) {
+    sockaddr_in clientAddr;
+    int clientAddrSize = sizeof(clientAddr);
+
+    if (getpeername(clientSocket, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrSize) == SOCKET_ERROR) {
+        LOG_WARNING("Failed to get client IP address: error " + std::to_string(WSAGetLastError()));
+        return "unknown";
+    }
+
+    char ipStr[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, INET_ADDRSTRLEN) == nullptr) {
+        LOG_WARNING("Failed to convert client IP address to string");
+        return "unknown";
+    }
+
+    return std::string(ipStr);
+}
+
+// Start background cleanup tasks
+void TCPServer::StartCleanupTasks() {
+    if (m_cleanupRunning) {
+        LOG_WARNING("Cleanup tasks are already running");
+        return;
+    }
+
+    m_cleanupRunning = true;
+    m_cleanupThread = std::thread(&TCPServer::CleanupTaskLoop, this);
+    LOG_INFO("Background cleanup tasks started");
+}
+
+// Stop background cleanup tasks
+void TCPServer::StopCleanupTasks() {
+    if (!m_cleanupRunning) {
+        return;
+    }
+
+    LOG_DEBUG("Stopping cleanup tasks...");
+    m_cleanupRunning = false;
+
+    if (m_cleanupThread.joinable()) {
+        m_cleanupThread.join();
+    }
+
+    LOG_INFO("Background cleanup tasks stopped");
+}
+
+// Background cleanup task loop
+void TCPServer::CleanupTaskLoop() {
+    LOG_DEBUG("Cleanup task loop starting");
+
+    while (m_cleanupRunning) {
+        try {
+            // Clean up expired sessions every 5 minutes
+            SessionManager::GetInstance().CleanupExpiredSessions();
+
+            // Clean up old rate limit attempts every 10 minutes
+            Config& config = Config::GetInstance();
+            int rateLimitWindow = config.GetInt("Security.RateLimitWindow", 300);
+            RateLimiter::GetInstance().CleanupOldAttempts(rateLimitWindow);
+
+            LOG_DEBUG("Cleanup tasks completed successfully");
+        }
+        catch (const std::exception& e) {
+            LOG_ERROR("Exception in cleanup task loop: " + std::string(e.what()));
+        }
+        catch (...) {
+            LOG_ERROR("Unknown exception in cleanup task loop");
+        }
+
+        // Sleep for 5 minutes before next cleanup cycle
+        for (int i = 0; i < 300 && m_cleanupRunning; ++i) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+
+    LOG_DEBUG("Cleanup task loop ending");
+}
+
+// Check if a message type requires session token validation
+bool TCPServer::RequiresSessionTokenValidation(MessageType messageType) const {
+    // System messages that don't require session token validation
+    switch (messageType) {
+        case MessageType::HANDSHAKE_REQUEST:
+        case MessageType::HANDSHAKE_RESPONSE:
+        case MessageType::SESSION_TOKEN_REQUEST:
+        case MessageType::SESSION_TOKEN_RESPONSE:
+        case MessageType::DISCONNECT:
+            return false;
+        default:
+            // All other messages require session token validation when authentication is enabled
+            return true;
+    }
+}

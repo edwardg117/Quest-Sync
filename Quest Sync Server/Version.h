@@ -7,13 +7,13 @@
 
 namespace Version {
     // Current server version (major, minor)
-    constexpr std::array<int, 2> ServerVersion = { 1, 0 };
+    constexpr std::array<int, 2> ServerVersion = { 2, 0 };
 
     // Minimum compatible client version
-    constexpr std::array<int, 2> MinClientVersion = { 1, 0 };
+    constexpr std::array<int, 2> MinClientVersion = { 2, 0 };
 
     // Maximum compatible client version
-    constexpr std::array<int, 2> MaxClientVersion = { 1, 9 };
+    constexpr std::array<int, 2> MaxClientVersion = { 2, 9 };
 
     // Convert version to string
     inline std::string VersionToString(const std::array<int, 2>& version) {

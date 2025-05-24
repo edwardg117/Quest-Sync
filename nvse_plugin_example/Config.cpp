@@ -31,6 +31,9 @@ void Config::InitializeDefaultConfig() {
     // Client settings
     m_config["Client.Version"] = "1.0";
     m_config["Client.LogLevel"] = "INFO";
+
+    // Security settings
+    m_config["Security.Password"] = "";  // Empty for no password
 }
 
 // Load configuration from a file
@@ -65,6 +68,9 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
         // Client settings
         defaultConfig["Client.Version"] = "1.0";
         defaultConfig["Client.LogLevel"] = "INFO";
+
+        // Security settings
+        defaultConfig["Security.Password"] = "";  // Empty for no password
 
         // Write the default config to file
         std::ofstream file(m_fullPath);
@@ -123,6 +129,11 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
                     }
                     else if (pair.first == "LogLevel") {
                         file << "# Log level (DEBUG, INFO, WARNING, ERROR)" << std::endl;
+                    }
+                }
+                else if (section.first == "Security") {
+                    if (pair.first == "Password") {
+                        file << "# Password for server authentication (leave empty if server has no password)" << std::endl;
                     }
                 }
 
@@ -210,6 +221,9 @@ bool Config::Load(const void* nvseInterface, const std::string& filename) {
     // Client settings
     defaultConfig["Client.Version"] = "1.0";
     defaultConfig["Client.LogLevel"] = "INFO";
+
+    // Security settings
+    defaultConfig["Security.Password"] = "";  // Empty for no password
 
     for (const auto& pair : defaultConfig) {
         if (loadedConfig.find(pair.first) == loadedConfig.end()) {
@@ -312,6 +326,11 @@ bool Config::Save() {
                     }
                     else if (pair.first == "LogLevel") {
                         file << "# Log level (DEBUG, INFO, WARNING, ERROR)" << std::endl;
+                    }
+                }
+                else if (section.first == "Security") {
+                    if (pair.first == "Password") {
+                        file << "# Password for server authentication (leave empty if server has no password)" << std::endl;
                     }
                 }
 

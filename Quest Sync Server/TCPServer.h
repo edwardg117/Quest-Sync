@@ -8,6 +8,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
+#include <chrono>
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 
@@ -112,6 +113,16 @@ public:
      */
     void BroadcastText(const std::string& text, SOCKET excludeSocket = INVALID_SOCKET);
 
+    /**
+     * @brief Start background cleanup tasks
+     */
+    void StartCleanupTasks();
+
+    /**
+     * @brief Stop background cleanup tasks
+     */
+    void StopCleanupTasks();
+
 private:
     // Server configuration
     std::string m_ipAddress;
@@ -129,6 +140,10 @@ private:
 
     // Worker thread
     std::thread m_workerThread;
+
+    // Cleanup tasks
+    std::atomic<bool> m_cleanupRunning;
+    std::thread m_cleanupThread;
 
     // Buffer for receiving data
     static constexpr size_t BUFFER_SIZE = 8192;
@@ -181,4 +196,25 @@ private:
      * @return true if socket creation was successful, false otherwise
      */
     bool CreateListenSocket();
+
+    /**
+     * @brief Get the IP address of a client socket
+     *
+     * @param clientSocket Socket of the client
+     * @return IP address as string
+     */
+    std::string GetClientIP(SOCKET clientSocket);
+
+    /**
+     * @brief Background cleanup task loop
+     */
+    void CleanupTaskLoop();
+
+    /**
+     * @brief Check if a message type requires session token validation
+     *
+     * @param messageType The message type to check
+     * @return true if session token validation is required, false otherwise
+     */
+    bool RequiresSessionTokenValidation(MessageType messageType) const;
 };

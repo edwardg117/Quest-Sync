@@ -33,7 +33,12 @@ void Config::InitializeDefaultConfig() {
 
     // Security settings
     m_config["Security.EnableAuthentication"] = "false";
+    m_config["Security.Password"] = "";  // Empty for no password
     m_config["Security.AllowedIPs"] = "";  // Empty for all IPs
+    m_config["Security.SessionTokenExpiry"] = "3600";  // Session token expiry in seconds (1 hour)
+    m_config["Security.RateLimitEnabled"] = "true";  // Enable rate limiting
+    m_config["Security.RateLimitAttempts"] = "5";  // Max authentication attempts per IP
+    m_config["Security.RateLimitWindow"] = "300";  // Rate limit window in seconds (5 minutes)
 
     // Performance settings
     m_config["Performance.HeartbeatInterval"] = "5";  // Seconds
@@ -73,7 +78,12 @@ bool Config::Load(const std::string& filename) {
 
         // Security settings
         defaultConfig["Security.EnableAuthentication"] = "false";
+        defaultConfig["Security.Password"] = "";  // Empty for no password
         defaultConfig["Security.AllowedIPs"] = "";  // Empty for all IPs
+        defaultConfig["Security.SessionTokenExpiry"] = "3600";  // Session token expiry in seconds (1 hour)
+        defaultConfig["Security.RateLimitEnabled"] = "true";  // Enable rate limiting
+        defaultConfig["Security.RateLimitAttempts"] = "5";  // Max authentication attempts per IP
+        defaultConfig["Security.RateLimitWindow"] = "300";  // Rate limit window in seconds (5 minutes)
 
         // Performance settings
         defaultConfig["Performance.HeartbeatInterval"] = "5";  // Seconds
@@ -172,8 +182,23 @@ bool Config::Load(const std::string& filename) {
                     if (pair.first == "EnableAuthentication") {
                         file << "# Whether to require authentication for clients (true/false)" << std::endl;
                     }
+                    else if (pair.first == "Password") {
+                        file << "# Password required for client authentication (leave empty for no password)" << std::endl;
+                    }
                     else if (pair.first == "AllowedIPs") {
                         file << "# Comma-separated list of allowed IP addresses. Leave empty to allow all" << std::endl;
+                    }
+                    else if (pair.first == "SessionTokenExpiry") {
+                        file << "# Session token expiry time in seconds" << std::endl;
+                    }
+                    else if (pair.first == "RateLimitEnabled") {
+                        file << "# Enable rate limiting for authentication attempts (true/false)" << std::endl;
+                    }
+                    else if (pair.first == "RateLimitAttempts") {
+                        file << "# Maximum authentication attempts per IP within the rate limit window" << std::endl;
+                    }
+                    else if (pair.first == "RateLimitWindow") {
+                        file << "# Rate limit window in seconds" << std::endl;
                     }
                 }
                 else if (section.first == "Performance") {
@@ -296,7 +321,12 @@ bool Config::Load(const std::string& filename) {
 
     // Security settings
     defaultConfig["Security.EnableAuthentication"] = "false";
+    defaultConfig["Security.Password"] = "";  // Empty for no password
     defaultConfig["Security.AllowedIPs"] = "";  // Empty for all IPs
+    defaultConfig["Security.SessionTokenExpiry"] = "3600";  // Session token expiry in seconds (1 hour)
+    defaultConfig["Security.RateLimitEnabled"] = "true";  // Enable rate limiting
+    defaultConfig["Security.RateLimitAttempts"] = "5";  // Max authentication attempts per IP
+    defaultConfig["Security.RateLimitWindow"] = "300";  // Rate limit window in seconds (5 minutes)
 
     // Performance settings
     defaultConfig["Performance.HeartbeatInterval"] = "5";  // Seconds
@@ -660,7 +690,12 @@ bool Config::HasAllDefaultSettings() {
 
     // Security settings
     defaultConfig["Security.EnableAuthentication"] = "false";
+    defaultConfig["Security.Password"] = "";  // Empty for no password
     defaultConfig["Security.AllowedIPs"] = "";  // Empty for all IPs
+    defaultConfig["Security.SessionTokenExpiry"] = "3600";  // Session token expiry in seconds (1 hour)
+    defaultConfig["Security.RateLimitEnabled"] = "true";  // Enable rate limiting
+    defaultConfig["Security.RateLimitAttempts"] = "5";  // Max authentication attempts per IP
+    defaultConfig["Security.RateLimitWindow"] = "300";  // Rate limit window in seconds (5 minutes)
 
     // Performance settings
     defaultConfig["Performance.HeartbeatInterval"] = "5";  // Seconds

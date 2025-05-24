@@ -299,6 +299,9 @@ void NetworkManager::ProcessMessages() {
             return;
         }
 
+        // Check session token expiry and refresh if needed
+        m_client->CheckSessionTokenExpiry();
+
         // Let the client process its messages
         m_client->ProcessMessages();
 
@@ -607,6 +610,13 @@ void NetworkManager::OnMessageReceived(NetworkClient* client, const Message& mes
                 std::string errorMsg = message.GetPayloadAsString();
                 QUESTSYNC_LOG_WARNING("Error from server: %s", errorMsg.c_str());
                 ShowNotification("Error from server: " + errorMsg);
+            }
+            break;
+
+        case MessageType::SESSION_TOKEN_RESPONSE:
+            // Forward session token response to client
+            if (client) {
+                client->ProcessSessionTokenResponse(message);
             }
             break;
 

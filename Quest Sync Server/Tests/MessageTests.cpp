@@ -149,7 +149,7 @@ TEST_F(MessageTest, DeserializeInvalidData) {
 
 // Test handshake request payload
 TEST_F(MessageTest, HandshakeRequestPayload) {
-    // Create a handshake request with version 1.0
+    // Create a handshake request with version 1.0 and no password
     HandshakeRequest request({1, 0});
 
     // Serialize the request
@@ -161,6 +161,41 @@ TEST_F(MessageTest, HandshakeRequestPayload) {
     // Check if the deserialized request matches the original
     EXPECT_EQ(deserializedRequest.clientVersion[0], 1);
     EXPECT_EQ(deserializedRequest.clientVersion[1], 0);
+    EXPECT_EQ(deserializedRequest.password, "");
+}
+
+// Test handshake request payload with password
+TEST_F(MessageTest, HandshakeRequestPayloadWithPassword) {
+    // Create a handshake request with version 1.0 and password
+    HandshakeRequest request({1, 0}, "testpassword");
+
+    // Serialize the request
+    std::vector<uint8_t> serialized = request.Serialize();
+
+    // Deserialize the request
+    HandshakeRequest deserializedRequest = HandshakeRequest::Deserialize(serialized);
+
+    // Check if the deserialized request matches the original
+    EXPECT_EQ(deserializedRequest.clientVersion[0], 1);
+    EXPECT_EQ(deserializedRequest.clientVersion[1], 0);
+    EXPECT_EQ(deserializedRequest.password, "testpassword");
+}
+
+// Test backward compatibility with old handshake request format
+TEST_F(MessageTest, HandshakeRequestBackwardCompatibility) {
+    // Create old format data (version only, no password)
+    std::vector<uint8_t> oldFormatData(sizeof(int) * 2);
+    int major = 1, minor = 0;
+    std::memcpy(oldFormatData.data(), &major, sizeof(int));
+    std::memcpy(oldFormatData.data() + sizeof(int), &minor, sizeof(int));
+
+    // Deserialize the old format data
+    HandshakeRequest deserializedRequest = HandshakeRequest::Deserialize(oldFormatData);
+
+    // Check if the deserialized request has correct version and empty password
+    EXPECT_EQ(deserializedRequest.clientVersion[0], 1);
+    EXPECT_EQ(deserializedRequest.clientVersion[1], 0);
+    EXPECT_EQ(deserializedRequest.password, "");
 }
 
 // Test handshake response payload
@@ -177,4 +212,49 @@ TEST_F(MessageTest, HandshakeResponsePayload) {
     // Check if the deserialized response matches the original
     EXPECT_EQ(deserializedResponse.accepted, true);
     EXPECT_EQ(deserializedResponse.message, "Test message");
+    EXPECT_EQ(deserializedResponse.sessionToken, "");
+}
+
+// Test handshake response payload with session token
+TEST_F(MessageTest, HandshakeResponsePayloadWithSessionToken) {
+    // Create a handshake response with session token
+    HandshakeResponse response(true, "Test message", "abc123token");
+
+    // Serialize the response
+    std::vector<uint8_t> serialized = response.Serialize();
+
+    // Deserialize the response
+    HandshakeResponse deserializedResponse = HandshakeResponse::Deserialize(serialized);
+
+    // Check if the deserialized response matches the original
+    EXPECT_EQ(deserializedResponse.accepted, true);
+    EXPECT_EQ(deserializedResponse.message, "Test message");
+    EXPECT_EQ(deserializedResponse.sessionToken, "abc123token");
+}
+
+// Test backward compatibility with old handshake response format
+TEST_F(MessageTest, HandshakeResponseBackwardCompatibility) {
+    // Create old format data (accepted + message only, no session token)
+    std::vector<uint8_t> oldFormatData;
+
+    // Add accepted flag
+    bool accepted = true;
+    oldFormatData.resize(sizeof(bool));
+    std::memcpy(oldFormatData.data(), &accepted, sizeof(bool));
+
+    // Add message length and content
+    std::string message = "Old format message";
+    uint32_t messageLength = static_cast<uint32_t>(message.size());
+    size_t currentSize = oldFormatData.size();
+    oldFormatData.resize(currentSize + sizeof(uint32_t) + message.size());
+    std::memcpy(oldFormatData.data() + currentSize, &messageLength, sizeof(uint32_t));
+    std::copy(message.begin(), message.end(), oldFormatData.begin() + currentSize + sizeof(uint32_t));
+
+    // Deserialize the old format data
+    HandshakeResponse deserializedResponse = HandshakeResponse::Deserialize(oldFormatData);
+
+    // Check if the deserialized response has correct values and empty session token
+    EXPECT_EQ(deserializedResponse.accepted, true);
+    EXPECT_EQ(deserializedResponse.message, "Old format message");
+    EXPECT_EQ(deserializedResponse.sessionToken, "");
 }

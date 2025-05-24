@@ -9,6 +9,7 @@
 #include <functional>
 #include <atomic>
 #include <memory>
+#include <chrono>
 #include <WS2tcpip.h>
 #pragma comment (lib, "ws2_32.lib")
 
@@ -191,6 +192,12 @@ private:
     // Client version
     std::array<int, 2> m_clientVersion;
 
+    // Session management
+    std::string m_sessionToken;
+    std::mutex m_sessionMutex;
+    std::chrono::steady_clock::time_point m_sessionTokenExpiry;
+    std::atomic<bool> m_sessionTokenRefreshInProgress;
+
     // Reconnection settings
     int m_reconnectInterval;
     int m_maxReconnectAttempts;
@@ -216,6 +223,11 @@ private:
     bool ProcessHandshakeResponse(const Message& message);
     bool ProcessReceivedData(std::vector<uint8_t>& data);
     bool ProcessReceivedData(char* buffer, int bytesReceived);
+    void CheckSessionTokenExpiry();
+    bool RequestSessionTokenRefresh();
+    bool ProcessSessionTokenResponse(const Message& message);
+    bool ShouldAddSessionToken(MessageType messageType) const;
+    std::string GetCurrentSessionToken() const;
 };
 
 #endif // NETWORK_CLIENT_H

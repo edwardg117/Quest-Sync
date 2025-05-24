@@ -15,6 +15,7 @@ NetworkClient::NetworkClient(const std::string& serverAddress, int serverPort)
       m_initialized(false),
       m_handshakeCompleted(false),
       m_clientVersion(ClientVersion::Version),
+      m_sessionTokenRefreshInProgress(false),
       m_reconnectInterval(60),
       m_maxReconnectAttempts(5),
       m_reconnectAttempts(0),
@@ -293,6 +294,14 @@ void NetworkClient::Disconnect() {
     }
 
     m_handshakeCompleted = false;
+
+    // Clear session token
+    {
+        std::lock_guard<std::mutex> lock(m_sessionMutex);
+        m_sessionToken.clear();
+        QUESTSYNC_LOG_DEBUG("NetworkClient::Disconnect - Session token cleared");
+    }
+
     QUESTSYNC_LOG_INFO("NetworkClient::Disconnect - Connection status set to disconnected");
 
     // Wait for receive thread to finish with a timeout
@@ -418,8 +427,24 @@ bool NetworkClient::SendMessage(const Message& message) {
         return false;
     }
 
+    // Create a copy of the message to add session token if needed
+    Message messageToSend = message;
+
+    // Add session token for authenticated messages (except handshake and session token requests)
+    if (ShouldAddSessionToken(message.GetType())) {
+        std::string sessionToken = GetCurrentSessionToken();
+        if (!sessionToken.empty()) {
+            messageToSend.SetSessionToken(sessionToken);
+            QUESTSYNC_LOG_DEBUG("Added session token to message type %d",
+                               static_cast<int>(message.GetType()));
+        } else {
+            QUESTSYNC_LOG_WARNING("No session token available for authenticated message type %d",
+                                 static_cast<int>(message.GetType()));
+        }
+    }
+
     // Serialize message
-    std::vector<uint8_t> data = message.Serialize();
+    std::vector<uint8_t> data = messageToSend.Serialize();
 
     // Log message details only in debug mode
     QUESTSYNC_LOG_DEBUG("Sending message type %d, size %u bytes",
@@ -804,8 +829,12 @@ void NetworkClient::ReceiveThreadFunction() {
 bool NetworkClient::SendHandshake() {
     QUESTSYNC_LOG_INFO("Starting handshake process");
 
-    // Create handshake request
-    HandshakeRequest request(m_clientVersion);
+    // Get password from configuration
+    Config& config = Config::GetInstance();
+    std::string password = config.GetString("Security.Password", "");
+
+    // Create handshake request with password
+    HandshakeRequest request(m_clientVersion, password);
     std::vector<uint8_t> payload = request.Serialize();
 
     // Always log handshake details for troubleshooting
@@ -926,10 +955,51 @@ bool NetworkClient::ProcessHandshakeResponse(const Message& message) {
             if (response.accepted) {
                 m_handshakeCompleted = true;
                 QUESTSYNC_LOG_INFO("NetworkClient::ProcessHandshakeResponse - Handshake accepted: %s", response.message.c_str());
+
+                // Store session token if provided
+                if (!response.sessionToken.empty()) {
+                    std::lock_guard<std::mutex> lock(m_sessionMutex);
+                    m_sessionToken = response.sessionToken;
+
+                    // Set session token expiry time (80% of server expiry for refresh)
+                    int tokenExpiry = response.expirySeconds > 0 ? response.expirySeconds : 3600; // Use server expiry or default
+                    auto refreshTime = std::chrono::seconds(static_cast<int>(tokenExpiry * 0.8));
+                    m_sessionTokenExpiry = std::chrono::steady_clock::now() + refreshTime;
+
+                    QUESTSYNC_LOG_DEBUG("Session token stored with %d second expiry (refresh at 80%%)", tokenExpiry);
+
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessHandshakeResponse - Session token received and stored, expires in %d seconds", static_cast<int>(refreshTime.count()));
+                } else {
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessHandshakeResponse - No session token provided by server");
+                }
+
                 return true;
             }
             else {
+                m_handshakeCompleted = false;
                 QUESTSYNC_LOG_WARNING("NetworkClient::ProcessHandshakeResponse - Handshake rejected: %s", response.message.c_str());
+
+                // Provide specific error handling based on rejection reason
+                std::string userMessage = "Quest Sync: Connection rejected";
+                if (response.message.find("Rate limit exceeded") != std::string::npos) {
+                    userMessage = "Quest Sync: Too many connection attempts - please wait before retrying";
+                    QUESTSYNC_LOG_INFO("Connection rejected due to rate limiting");
+                } else if (response.message.find("Authentication failed: Invalid password") != std::string::npos) {
+                    userMessage = "Quest Sync: Invalid password - check your configuration";
+                    QUESTSYNC_LOG_INFO("Connection rejected due to invalid password");
+                } else if (response.message.find("Authentication failed: Server password not configured") != std::string::npos) {
+                    userMessage = "Quest Sync: Server authentication misconfigured";
+                    QUESTSYNC_LOG_INFO("Connection rejected due to server misconfiguration");
+                } else if (response.message.find("Version incompatible") != std::string::npos) {
+                    userMessage = "Quest Sync: Version incompatible with server";
+                    QUESTSYNC_LOG_INFO("Connection rejected due to version incompatibility");
+                } else {
+                    userMessage = "Quest Sync: Connection rejected - " + response.message;
+                }
+
+                // Show user-friendly error message
+                QueueUIMessage(userMessage, 2);
+
                 Disconnect();
                 return false;
             }
@@ -1269,8 +1339,143 @@ void NetworkClient::ResetReconnectCounter() {
     m_maxAttemptsWarningLogged = false;
 }
 
+// Check if session token needs refresh
+void NetworkClient::CheckSessionTokenExpiry() {
+    if (!m_connected || !m_handshakeCompleted) {
+        return;
+    }
 
+    // Check if authentication is enabled
+    Config& config = Config::GetInstance();
+    std::string password = config.GetString("Security.Password", "");
+    if (password.empty()) {
+        // No authentication configured, no need to refresh
+        return;
+    }
 
+    // Check if refresh is already in progress
+    if (m_sessionTokenRefreshInProgress) {
+        return;
+    }
 
+    // Check if token needs refresh
+    auto now = std::chrono::steady_clock::now();
+    bool needsRefresh = false;
+
+    {
+        std::lock_guard<std::mutex> lock(m_sessionMutex);
+        if (!m_sessionToken.empty() && now >= m_sessionTokenExpiry) {
+            needsRefresh = true;
+        }
+    }
+
+    if (needsRefresh) {
+        QUESTSYNC_LOG_DEBUG("Session token needs refresh, requesting new token");
+        RequestSessionTokenRefresh();
+    }
+}
+
+// Request session token refresh
+bool NetworkClient::RequestSessionTokenRefresh() {
+    if (!m_connected || m_sessionTokenRefreshInProgress) {
+        return false;
+    }
+
+    std::string currentToken;
+    {
+        std::lock_guard<std::mutex> lock(m_sessionMutex);
+        currentToken = m_sessionToken;
+    }
+
+    if (currentToken.empty()) {
+        QUESTSYNC_LOG_WARNING("Cannot refresh session token: no current token");
+        return false;
+    }
+
+    m_sessionTokenRefreshInProgress = true;
+
+    try {
+        // Create session token request
+        SessionTokenRequest request(currentToken);
+        std::vector<uint8_t> payload = request.Serialize();
+
+        Message requestMsg(MessageType::SESSION_TOKEN_REQUEST);
+        requestMsg.SetPayload(payload);
+
+        if (SendMessage(requestMsg)) {
+            QUESTSYNC_LOG_DEBUG("Session token refresh request sent");
+            return true;
+        } else {
+            QUESTSYNC_LOG_ERROR("Failed to send session token refresh request");
+            m_sessionTokenRefreshInProgress = false;
+            return false;
+        }
+    }
+    catch (const std::exception& e) {
+        QUESTSYNC_LOG_ERROR("Error sending session token refresh request: %s", e.what());
+        m_sessionTokenRefreshInProgress = false;
+        return false;
+    }
+}
+
+// Process session token response
+bool NetworkClient::ProcessSessionTokenResponse(const Message& message) {
+    try {
+        SessionTokenResponse response = SessionTokenResponse::Deserialize(message.GetPayload());
+
+        m_sessionTokenRefreshInProgress = false;
+
+        if (response.success) {
+            // Update session token
+            {
+                std::lock_guard<std::mutex> lock(m_sessionMutex);
+                m_sessionToken = response.newToken;
+
+                // Set new expiry time (80% of server expiry for refresh)
+                int tokenExpiry = response.expirySeconds > 0 ? response.expirySeconds : 3600; // Use server expiry or default
+                auto refreshTime = std::chrono::seconds(static_cast<int>(tokenExpiry * 0.8));
+                m_sessionTokenExpiry = std::chrono::steady_clock::now() + refreshTime;
+
+                QUESTSYNC_LOG_DEBUG("Session token refreshed with %d second expiry (refresh at 80%%)", tokenExpiry);
+            }
+
+            QUESTSYNC_LOG_INFO("Session token refreshed successfully");
+            return true;
+        } else {
+            QUESTSYNC_LOG_WARNING("Session token refresh failed: %s", response.message.c_str());
+            // Token refresh failed, might need to re-authenticate
+            return false;
+        }
+    }
+    catch (const std::exception& e) {
+        QUESTSYNC_LOG_ERROR("Error processing session token response: %s", e.what());
+        m_sessionTokenRefreshInProgress = false;
+        return false;
+    }
+}
+
+// Check if a message type should have a session token added
+bool NetworkClient::ShouldAddSessionToken(MessageType messageType) const {
+    // Don't add session tokens to system messages that don't require authentication
+    switch (messageType) {
+        case MessageType::HANDSHAKE_REQUEST:
+        case MessageType::HANDSHAKE_RESPONSE:
+        case MessageType::SESSION_TOKEN_REQUEST:
+        case MessageType::SESSION_TOKEN_RESPONSE:
+        case MessageType::DISCONNECT:
+            return false;
+        default:
+            // All other messages require session tokens when authentication is enabled
+            Config& config = Config::GetInstance();
+            std::string password = config.GetString("Security.Password", "");
+            return !password.empty(); // Only add tokens if authentication is configured
+    }
+}
+
+// Get the current session token
+std::string NetworkClient::GetCurrentSessionToken() const {
+    std::lock_guard<std::mutex> lock(m_sessionMutex);
+    return m_sessionToken;
+}
 
 
