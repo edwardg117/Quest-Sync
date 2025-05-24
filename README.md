@@ -71,7 +71,22 @@ If you experience crashes, please try disabling all other mods to see if there's
 
 ## Documentation
 
-- [Version Compatibility System](docs/VERSION_COMPATIBILITY.md) - Technical details about client-server version checking
+### User Guides
+- [Configuration Guide](docs/CONFIGURATION.md) - Detailed configuration options for client and server
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [API Reference](docs/API_REFERENCE.md) - Server commands and configuration reference
+
+### Technical Documentation
+- [Architecture Overview](docs/ARCHITECTURE.md) - System design and component relationships
+- [Networking Guide](docs/NETWORKING.md) - Network protocol and communication details
+- [Quest Synchronization](docs/QUEST_SYNCHRONIZATION.md) - How quest tracking and sync works
+- [Version Compatibility System](docs/VERSION_COMPATIBILITY.md) - Client-server version checking
+
+### Development
+- [Development Guide](docs/DEVELOPMENT.md) - Setup and contribution guidelines
+- [Building Guide](docs/BUILDING.md) - Detailed build instructions
+- [Testing Guide](docs/TESTING.md) - Testing procedures and guidelines
+- [Planned Features](docs/PLANNED_FEATURES.md) - Roadmap and upcoming features
 
 ## Support
 

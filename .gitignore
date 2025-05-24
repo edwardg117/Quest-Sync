@@ -408,3 +408,24 @@ Quest\ Sync\ Server/Tests/results/*.xml
 Quest\ Sync\ Server/Tests/results/*.json
 test-results-*.xml
 test-results-*.json
+
+# Batch file outputs and generated files
+*.exe.config
+*.exe.manifest
+*.application
+*.deploy
+
+# Server runtime files
+Quest\ Sync\ Server/*.cfg
+Quest\ Sync\ Server/*.log
+quest_sync.ini
+quest_sync_client.log
+
+# NuGet packages directory
+Quest\ Sync\ Server/Tests/packages/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+docs/archive/olduserguidelines.txt

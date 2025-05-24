@@ -1,7 +1,0 @@
-- NVSE-Master is only to see how the system used to work. We want to make a better version of this in the new Quest Sync repo.
-- This is a Visual Studio project, when you want to test the build I need to do it manually through Visual Studio.
-- The goal of this project is to sync quest states between multiple players over teh internet.
-- The client will be a plugin for the New Vegas Script Extender (NVSE), NVSE will load and start the plugin when the game starts.
-- Do not edit any code for the script extender itself.
-- The Client will not send commands to the command processor, that should only exist on the server for the user running the server.
-- The following website contains a list of console commands available in game: https://geckwiki.com/index.php?title=Category:Functions_(All)
