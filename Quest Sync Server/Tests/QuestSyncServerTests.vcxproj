@@ -158,6 +158,8 @@
     <ClCompile Include="MockClasses.cpp" />
     <ClCompile Include="TCPServerTests.cpp" />
     <ClCompile Include="CommandProcessorTests.cpp" />
+    <ClCompile Include="SessionManagerTests.cpp" />
+    <ClCompile Include="RateLimiterTests.cpp" />
     <ClCompile Include="TestImplementations.cpp" />
   </ItemGroup>
   <ItemGroup>
