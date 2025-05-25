@@ -245,6 +245,13 @@ void NetworkClient::Disconnect() {
         QUESTSYNC_LOG_DEBUG("Message queue cleared");
     }
 
+    // Clear receive buffer
+    {
+        std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+        m_receiveBuffer.clear();
+        QUESTSYNC_LOG_DEBUG("Receive buffer cleared");
+    }
+
     // Close socket safely
     if (m_socket != INVALID_SOCKET) {
         QUESTSYNC_LOG_DEBUG("Closing socket");
@@ -678,6 +685,12 @@ void NetworkClient::ReceiveThreadFunction() {
         QUESTSYNC_LOG_ERROR("NetworkClient::ReceiveThreadFunction - Failed to set socket to non-blocking mode");
     }
 
+    // Clear the persistent receive buffer
+    {
+        std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+        m_receiveBuffer.clear();
+    }
+
     // Receive loop
     while (m_threadRunning) {
         // Check if we're still connected
@@ -709,13 +722,28 @@ void NetworkClient::ReceiveThreadFunction() {
                     QUESTSYNC_LOG_DEBUG("NetworkClient::ReceiveThreadFunction - Raw received data (hex): %s", rawDataHex.c_str());
                 }
 
-                // Process received data
-                if (!ProcessReceivedData(buffer, bytesReceived)) {
-                    // Error processing data
-                    QUESTSYNC_LOG_WARNING("NetworkClient::ReceiveThreadFunction - Error processing data");
+                // Append new data to persistent buffer
+                {
+                    std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+                    size_t oldSize = m_receiveBuffer.size();
+                    m_receiveBuffer.resize(oldSize + bytesReceived);
+                    std::memcpy(m_receiveBuffer.data() + oldSize, buffer, bytesReceived);
 
-                    // Don't break immediately, just clear the buffer and continue
-                    std::memset(buffer, 0, BUFFER_SIZE);
+                    if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                        QUESTSYNC_LOG_DEBUG("NetworkClient::ReceiveThreadFunction - Buffer size after append: %u bytes", m_receiveBuffer.size());
+                    }
+                }
+
+                // Process complete messages from the buffer
+                if (!ProcessBufferedData()) {
+                    // Error processing data
+                    QUESTSYNC_LOG_WARNING("NetworkClient::ReceiveThreadFunction - Error processing buffered data");
+
+                    // Clear the buffer on error to prevent corruption from propagating
+                    {
+                        std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+                        m_receiveBuffer.clear();
+                    }
 
                     // Add a small delay to prevent CPU spinning
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -723,12 +751,24 @@ void NetworkClient::ReceiveThreadFunction() {
             }
             catch (const std::exception& e) {
                 QUESTSYNC_LOG_ERROR("NetworkClient::ReceiveThreadFunction - Exception processing received data: %s", e.what());
-                std::memset(buffer, 0, BUFFER_SIZE);
+
+                // Clear the buffer on exception
+                {
+                    std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+                    m_receiveBuffer.clear();
+                }
+
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             catch (...) {
                 QUESTSYNC_LOG_ERROR("NetworkClient::ReceiveThreadFunction - Unknown exception processing received data");
-                std::memset(buffer, 0, BUFFER_SIZE);
+
+                // Clear the buffer on exception
+                {
+                    std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+                    m_receiveBuffer.clear();
+                }
+
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
@@ -1055,6 +1095,152 @@ bool NetworkClient::ProcessReceivedData(char* buffer, int bytesReceived) {
     }
 }
 
+// Process buffered data with proper message boundary handling
+bool NetworkClient::ProcessBufferedData() {
+    std::lock_guard<std::mutex> lock(m_receiveBufferMutex);
+
+    if (m_receiveBuffer.empty()) {
+        return true;
+    }
+
+    size_t processedBytes = 0;
+    bool success = true;
+
+    // Log the buffer state only in debug mode
+    if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+        QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Processing %u bytes in buffer", m_receiveBuffer.size());
+    }
+
+    try {
+        while (processedBytes < m_receiveBuffer.size()) {
+            // Check if we have enough data for a header
+            if (m_receiveBuffer.size() - processedBytes < sizeof(MessageHeader)) {
+                if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Not enough data for header, need %u bytes, have %u bytes",
+                             sizeof(MessageHeader), m_receiveBuffer.size() - processedBytes);
+                }
+                break;
+            }
+
+            // Get header
+            const MessageHeader* header = reinterpret_cast<const MessageHeader*>(m_receiveBuffer.data() + processedBytes);
+
+            // Log header details only in debug mode
+            if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Message header: type=%d, payloadSize=%u, sessionTokenLength=%u",
+                         static_cast<int>(header->type), header->payloadSize, header->sessionTokenLength);
+            }
+
+            // Validate message type
+            int messageType = static_cast<int>(header->type);
+            if (messageType < 0 || messageType > static_cast<int>(MessageType::RESERVED)) {
+                QUESTSYNC_LOG_ERROR("NetworkClient::ProcessBufferedData - Invalid message type: %d", messageType);
+
+                if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                    // Dump the header bytes for debugging
+                    std::string headerHex;
+                    for (size_t i = 0; i < sizeof(MessageHeader) && i + processedBytes < m_receiveBuffer.size(); ++i) {
+                        char hex[8];
+                        sprintf_s(hex, "%02X ", m_receiveBuffer[processedBytes + i]);
+                        headerHex += hex;
+                    }
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Invalid header bytes: %s", headerHex.c_str());
+                }
+
+                // Skip this header and try to find a valid one
+                processedBytes += 1; // Skip one byte at a time to find sync
+                continue;
+            }
+
+            // Validate payload and session token sizes
+            if (header->payloadSize > 1024 * 1024 || header->sessionTokenLength > 1024) {
+                QUESTSYNC_LOG_ERROR("NetworkClient::ProcessBufferedData - Invalid sizes: payload=%u, sessionToken=%u",
+                         header->payloadSize, header->sessionTokenLength);
+                processedBytes += 1; // Skip one byte at a time to find sync
+                continue;
+            }
+
+            // Check if we have the full message (including session token)
+            size_t messageSize = sizeof(MessageHeader) + header->sessionTokenLength + header->payloadSize;
+            if (m_receiveBuffer.size() - processedBytes < messageSize) {
+                if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Incomplete message, need %u bytes, have %u bytes",
+                             messageSize, m_receiveBuffer.size() - processedBytes);
+                }
+                break; // Wait for more data
+            }
+
+            try {
+                // Deserialize message
+                std::unique_ptr<Message> message = Message::Deserialize(m_receiveBuffer.data() + processedBytes, messageSize);
+
+                // Log successful deserialization only in debug mode
+                if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Successfully deserialized message type %d",
+                             static_cast<int>(message->GetType()));
+                }
+
+                // Add message to queue
+                {
+                    std::lock_guard<std::mutex> queueLock(m_queueMutex);
+                    m_messageQueue.push(std::move(message));
+                }
+
+                // Update processed bytes
+                processedBytes += messageSize;
+            }
+            catch (const std::exception& e) {
+                QUESTSYNC_LOG_ERROR("NetworkClient::ProcessBufferedData - Error deserializing message: %s", e.what());
+
+                if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                    // Dump the message bytes for debugging
+                    std::string errorMessageHex;
+                    size_t maxBytes = (messageSize < 64) ? messageSize : 64;
+                    for (size_t i = 0; i < maxBytes && i + processedBytes < m_receiveBuffer.size(); ++i) {
+                        char hex[8];
+                        sprintf_s(hex, "%02X ", m_receiveBuffer[processedBytes + i]);
+                        errorMessageHex += hex;
+                    }
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Error message bytes: %s", errorMessageHex.c_str());
+                }
+
+                // Skip this message and try to find the next one
+                processedBytes += 1; // Skip one byte at a time to find sync
+                success = false;
+            }
+        }
+
+        // Remove processed data from buffer
+        if (processedBytes > 0) {
+            m_receiveBuffer.erase(m_receiveBuffer.begin(), m_receiveBuffer.begin() + processedBytes);
+
+            if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
+                QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessBufferedData - Removed %u bytes, buffer size now: %u",
+                         processedBytes, m_receiveBuffer.size());
+            }
+        }
+
+        // Prevent buffer from growing too large
+        if (m_receiveBuffer.size() > 64 * 1024) { // 64KB max buffer
+            QUESTSYNC_LOG_WARNING("NetworkClient::ProcessBufferedData - Buffer too large (%u bytes), clearing", m_receiveBuffer.size());
+            m_receiveBuffer.clear();
+            success = false;
+        }
+    }
+    catch (const std::exception& e) {
+        QUESTSYNC_LOG_ERROR("NetworkClient::ProcessBufferedData - Exception: %s", e.what());
+        m_receiveBuffer.clear();
+        return false;
+    }
+    catch (...) {
+        QUESTSYNC_LOG_ERROR("NetworkClient::ProcessBufferedData - Unknown exception");
+        m_receiveBuffer.clear();
+        return false;
+    }
+
+    return success;
+}
+
 // Process received data
 bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
     size_t processedBytes = 0;
@@ -1127,12 +1313,12 @@ bool NetworkClient::ProcessReceivedData(std::vector<uint8_t>& data) {
                 continue;
             }
 
-            // Check if we have the full message
-            size_t messageSize = sizeof(MessageHeader) + header->payloadSize;
+            // Check if we have the full message (including session token)
+            size_t messageSize = sizeof(MessageHeader) + header->sessionTokenLength + header->payloadSize;
             if (data.size() - processedBytes < messageSize) {
                 if (GetCurrentLogLevel() == QuestSyncLogLevel::DEBUG) {
-                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessReceivedData - Incomplete message, need %u bytes, have %u bytes",
-                             messageSize, data.size() - processedBytes);
+                    QUESTSYNC_LOG_DEBUG("NetworkClient::ProcessReceivedData - Incomplete message, need %u bytes, have %u bytes (header: %u, token: %u, payload: %u)",
+                             messageSize, data.size() - processedBytes, sizeof(MessageHeader), header->sessionTokenLength, header->payloadSize);
                 }
                 break;
             }

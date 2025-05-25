@@ -186,70 +186,105 @@ bool QuestStateTracker::ProcessQuestStateMessage(const Message& message) {
     // Process message based on type
     switch (type) {
         case MessageType::UPDATE_QUEST: {
-            // Extract quest ID and stage
-            auto questIdIt = data.find("questId");
-            auto stageIt = data.find("stage");
+            // Extract quest ID and stage (use the field names that are actually sent)
+            auto questIdIt = data.find("ID");
+            auto stageIt = data.find("Stage");
 
             if (questIdIt != data.end() && stageIt != data.end()) {
                 std::string questIdHex = questIdIt->second;
                 UInt32 stage = static_cast<UInt32>(std::stoul(stageIt->second));
 
+                QUESTSYNC_LOG_INFO("Processing quest update: ID=%s, Stage=%u", questIdHex.c_str(), stage);
+
                 // Update quest stage in game
                 return SetQuestStage(questIdHex, stage);
+            } else {
+                QUESTSYNC_LOG_ERROR("UPDATE_QUEST message missing required fields. Available fields:");
+                for (const auto& [key, value] : data) {
+                    QUESTSYNC_LOG_ERROR("  %s = %s", key.c_str(), value.c_str());
+                }
             }
             break;
         }
 
         case MessageType::COMPLETE_QUEST: {
-            // Extract quest ID
-            auto questIdIt = data.find("questId");
+            // Extract quest ID (use the field name that is actually sent)
+            auto questIdIt = data.find("ID");
 
             if (questIdIt != data.end()) {
                 std::string questIdHex = questIdIt->second;
 
+                QUESTSYNC_LOG_INFO("Processing quest completion: ID=%s", questIdHex.c_str());
+
                 // Complete quest in game
                 return CompleteQuest(questIdHex);
+            } else {
+                QUESTSYNC_LOG_ERROR("COMPLETE_QUEST message missing required fields. Available fields:");
+                for (const auto& [key, value] : data) {
+                    QUESTSYNC_LOG_ERROR("  %s = %s", key.c_str(), value.c_str());
+                }
             }
             break;
         }
 
         case MessageType::FAIL_QUEST: {
-            // Extract quest ID
-            auto questIdIt = data.find("questId");
+            // Extract quest ID (use the field name that is actually sent)
+            auto questIdIt = data.find("ID");
 
             if (questIdIt != data.end()) {
                 std::string questIdHex = questIdIt->second;
 
+                QUESTSYNC_LOG_INFO("Processing quest failure: ID=%s", questIdHex.c_str());
+
                 // Fail quest in game
                 return FailQuest(questIdHex);
+            } else {
+                QUESTSYNC_LOG_ERROR("FAIL_QUEST message missing required fields. Available fields:");
+                for (const auto& [key, value] : data) {
+                    QUESTSYNC_LOG_ERROR("  %s = %s", key.c_str(), value.c_str());
+                }
             }
             break;
         }
 
         case MessageType::START_QUEST: {
-            // Extract quest ID
-            auto questIdIt = data.find("questId");
+            // Extract quest ID (use the field name that is actually sent)
+            auto questIdIt = data.find("ID");
 
             if (questIdIt != data.end()) {
                 std::string questIdHex = questIdIt->second;
 
+                QUESTSYNC_LOG_INFO("Processing quest start: ID=%s", questIdHex.c_str());
+
                 // Start quest in game
                 return StartQuest(questIdHex);
+            } else {
+                QUESTSYNC_LOG_ERROR("START_QUEST message missing required fields. Available fields:");
+                for (const auto& [key, value] : data) {
+                    QUESTSYNC_LOG_ERROR("  %s = %s", key.c_str(), value.c_str());
+                }
             }
             break;
         }
 
         case MessageType::COMPLETE_OBJECTIVE: {
-            // Extract quest ID and objective ID
-            auto questIdIt = data.find("questId");
+            // Extract quest ID and objective ID (use the field names that are actually sent)
+            auto questIdIt = data.find("ID");
             auto objectiveIdIt = data.find("objectiveId");
 
             if (questIdIt != data.end() && objectiveIdIt != data.end()) {
                 std::string questIdHex = questIdIt->second;
                 UInt32 objectiveId = static_cast<UInt32>(std::stoul(objectiveIdIt->second));
 
+                QUESTSYNC_LOG_INFO("Processing objective completion: ID=%s, ObjectiveID=%u", questIdHex.c_str(), objectiveId);
+
                 // Complete objective in game
                 return SetQuestStage(questIdHex, objectiveId);
+            } else {
+                QUESTSYNC_LOG_ERROR("COMPLETE_OBJECTIVE message missing required fields. Available fields:");
+                for (const auto& [key, value] : data) {
+                    QUESTSYNC_LOG_ERROR("  %s = %s", key.c_str(), value.c_str());
+                }
             }
             break;
         }

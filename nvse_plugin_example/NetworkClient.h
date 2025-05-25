@@ -209,6 +209,10 @@ private:
     std::queue<std::unique_ptr<Message>> m_messageQueue;
     std::mutex m_queueMutex;
 
+    // Persistent receive buffer for handling TCP stream fragmentation
+    std::vector<uint8_t> m_receiveBuffer;
+    std::mutex m_receiveBufferMutex;
+
     // Receive thread
     std::thread m_receiveThread;
     std::atomic<bool> m_threadRunning;
@@ -229,6 +233,7 @@ private:
     bool ProcessHandshakeResponse(const Message& message);
     bool ProcessReceivedData(std::vector<uint8_t>& data);
     bool ProcessReceivedData(char* buffer, int bytesReceived);
+    bool ProcessBufferedData();
     bool RequestSessionTokenRefresh();
     bool ShouldAddSessionToken(MessageType messageType) const;
     std::string GetCurrentSessionToken() const;
