@@ -11,6 +11,35 @@ The tests are organized by component:
 - **MessageTests.cpp**: Tests for message serialization/deserialization
 - **TCPServerTests.cpp**: Tests for the TCP server implementation
 - **CommandProcessorTests.cpp**: Tests for the command-line interface
+- **SessionManagerTests.cpp**: Tests for session token management
+- **RateLimiterTests.cpp**: Tests for authentication rate limiting
+- **IntegrationTests.cpp**: Integration tests for component interactions
+
+## Integration Tests
+
+The integration tests validate that server components work correctly together in real-world scenarios:
+
+### Authentication Flow Integration
+- **AuthenticationFlowIntegration**: Tests complete authentication workflow with TCPServer + SessionManager + RateLimiter
+- **SessionTokenRefreshIntegration**: Tests session token refresh mechanism
+- **MultipleClientSessionManagement**: Tests concurrent client session handling
+
+### Message Processing Integration
+- **MessageProcessingIntegration**: Tests end-to-end message handling and routing
+- **ConfigurationIntegration**: Tests how configuration changes affect server behavior
+- **SessionExpiryIntegration**: Tests session expiration and cleanup
+
+### Stress and Concurrency Testing
+- **ConcurrentOperationsIntegration**: Tests thread safety with multiple concurrent operations
+- **StressTestIntegration**: Tests server performance under high load (100 clients, 1000 messages)
+- **ErrorHandlingIntegration**: Tests error recovery and graceful handling of invalid inputs
+
+These tests ensure that:
+- Authentication security works correctly across all components
+- Session management integrates properly with rate limiting
+- Message processing handles concurrent clients safely
+- Configuration changes are applied consistently
+- The server maintains stability under stress conditions
 
 ## Running the Tests
 

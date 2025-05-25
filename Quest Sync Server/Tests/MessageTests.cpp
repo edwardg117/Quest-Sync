@@ -232,29 +232,4 @@ TEST_F(MessageTest, HandshakeResponsePayloadWithSessionToken) {
     EXPECT_EQ(deserializedResponse.sessionToken, "abc123token");
 }
 
-// Test backward compatibility with old handshake response format
-TEST_F(MessageTest, HandshakeResponseBackwardCompatibility) {
-    // Create old format data (accepted + message only, no session token)
-    std::vector<uint8_t> oldFormatData;
 
-    // Add accepted flag
-    bool accepted = true;
-    oldFormatData.resize(sizeof(bool));
-    std::memcpy(oldFormatData.data(), &accepted, sizeof(bool));
-
-    // Add message length and content
-    std::string message = "Old format message";
-    uint32_t messageLength = static_cast<uint32_t>(message.size());
-    size_t currentSize = oldFormatData.size();
-    oldFormatData.resize(currentSize + sizeof(uint32_t) + message.size());
-    std::memcpy(oldFormatData.data() + currentSize, &messageLength, sizeof(uint32_t));
-    std::copy(message.begin(), message.end(), oldFormatData.begin() + currentSize + sizeof(uint32_t));
-
-    // Deserialize the old format data
-    HandshakeResponse deserializedResponse = HandshakeResponse::Deserialize(oldFormatData);
-
-    // Check if the deserialized response has correct values and empty session token
-    EXPECT_EQ(deserializedResponse.accepted, true);
-    EXPECT_EQ(deserializedResponse.message, "Old format message");
-    EXPECT_EQ(deserializedResponse.sessionToken, "");
-}

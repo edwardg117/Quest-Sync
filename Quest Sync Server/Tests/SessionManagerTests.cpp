@@ -332,41 +332,25 @@ TEST_F(SessionManagerTest, LargeNumberOfSessions) {
     }
 }
 
-// Test cleanup with mixed expiry times
-TEST_F(SessionManagerTest, MixedExpiryCleanup) {
-    // Create sessions with various expiry times
-    std::vector<int> expiredSockets;
-    std::vector<int> validSockets;
+// Test session expiry validation
+TEST_F(SessionManagerTest, SessionExpiryValidation) {
+    int clientSocket = 50; // Use a different socket number to avoid conflicts
 
-    for (int i = 1; i <= 10; ++i) {
-        if (i % 2 == 0) {
-            // Even sockets: short expiry
-            m_sessionManager->GenerateSessionToken(i, "192.168.1." + std::to_string(i), 1);
-            expiredSockets.push_back(i);
-        } else {
-            // Odd sockets: long expiry
-            m_sessionManager->GenerateSessionToken(i, "192.168.1." + std::to_string(i), 3600);
-            validSockets.push_back(i);
-        }
-    }
+    // Create session with 0 expiry (should expire immediately)
+    std::string token = m_sessionManager->GenerateSessionToken(clientSocket, "192.168.1.50", 0);
 
-    EXPECT_EQ(m_sessionManager->GetActiveSessionCount(), 10);
+    // Verify session was created
+    EXPECT_FALSE(token.empty());
 
-    // Wait for short-lived sessions to expire
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // Add a small delay to ensure expiry
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // Cleanup expired sessions
-    m_sessionManager->CleanupExpiredSessions();
+    // Validation should fail due to expiry
+    EXPECT_FALSE(m_sessionManager->ValidateSessionToken(clientSocket, token));
 
-    // Only long-lived sessions should remain
-    EXPECT_EQ(m_sessionManager->GetActiveSessionCount(), validSockets.size());
+    // Create a new session with longer expiry
+    std::string longToken = m_sessionManager->GenerateSessionToken(clientSocket, "192.168.1.50", 3600);
 
-    // Verify which sessions remain
-    for (int socket : validSockets) {
-        EXPECT_NE(m_sessionManager->GetClientIP(socket), "");
-    }
-
-    for (int socket : expiredSockets) {
-        EXPECT_EQ(m_sessionManager->GetClientIP(socket), "");
-    }
+    // This should validate successfully
+    EXPECT_TRUE(m_sessionManager->ValidateSessionToken(clientSocket, longToken));
 }

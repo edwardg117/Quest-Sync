@@ -152,6 +152,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ConfigTests.cpp" />
+    <ClCompile Include="IntegrationTests.cpp" />
     <ClCompile Include="LoggerTests.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MessageTests.cpp" />
@@ -161,9 +162,13 @@
     <ClCompile Include="SessionManagerTests.cpp" />
     <ClCompile Include="RateLimiterTests.cpp" />
     <ClCompile Include="TestImplementations.cpp" />
+    <ClCompile Include="..\SessionManager.cpp" />
+    <ClCompile Include="..\RateLimiter.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MockClasses.h" />
+    <ClInclude Include="..\SessionManager.h" />
+    <ClInclude Include="..\RateLimiter.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

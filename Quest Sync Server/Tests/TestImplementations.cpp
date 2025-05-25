@@ -38,6 +38,12 @@ Message::Message(MessageType type, const std::string& payload)
     }
 }
 
+// Constructor with type and session token
+Message::Message(MessageType type, const std::string& sessionToken, bool isSessionToken)
+    : m_header(type, 0, static_cast<uint32_t>(sessionToken.size())), m_sessionToken(sessionToken) {
+    // isSessionToken parameter is used to distinguish this constructor from the string payload constructor
+}
+
 std::string Message::GetPayloadAsString() const {
     return std::string(reinterpret_cast<const char*>(m_payload.data()), m_payload.size());
 }
@@ -55,20 +61,37 @@ void Message::SetPayload(const std::string& payload) {
     m_header.payloadSize = static_cast<uint32_t>(payload.size());
 }
 
+// Session token methods
+void Message::SetSessionToken(const std::string& token) {
+    m_sessionToken = token;
+    m_header.sessionTokenLength = static_cast<uint32_t>(token.size());
+}
+
+void Message::ClearSessionToken() {
+    m_sessionToken.clear();
+    m_header.sessionTokenLength = 0;
+}
+
 std::vector<uint8_t> Message::Serialize() const {
-    // Calculate total size: header + payload
-    size_t totalSize = sizeof(MessageHeader) + m_payload.size();
+    // Calculate total size: header + session token + payload
+    size_t totalSize = sizeof(MessageHeader) + m_sessionToken.size() + m_payload.size();
     std::vector<uint8_t> result(totalSize);
 
-    // Create a copy of the header to ensure we don't modify the original
-    MessageHeader header = m_header;
+    size_t offset = 0;
 
     // Copy header
-    std::memcpy(result.data(), &header, sizeof(MessageHeader));
+    std::memcpy(result.data() + offset, &m_header, sizeof(MessageHeader));
+    offset += sizeof(MessageHeader);
 
-    // Copy payload using std::copy for better safety
+    // Copy session token if present
+    if (!m_sessionToken.empty()) {
+        std::memcpy(result.data() + offset, m_sessionToken.data(), m_sessionToken.size());
+        offset += m_sessionToken.size();
+    }
+
+    // Copy payload
     if (!m_payload.empty()) {
-        std::copy(m_payload.begin(), m_payload.end(), result.begin() + sizeof(MessageHeader));
+        std::memcpy(result.data() + offset, m_payload.data(), m_payload.size());
     }
 
     return result;
@@ -83,23 +106,28 @@ std::unique_ptr<Message> Message::Deserialize(const std::vector<uint8_t>& data) 
     MessageHeader header;
     std::memcpy(&header, data.data(), sizeof(MessageHeader));
 
-    // Check if the data size is at least as large as the header plus payload size
-    if (data.size() < sizeof(MessageHeader) + header.payloadSize) {
+    // Check if we have enough data for session token and payload
+    size_t requiredSize = sizeof(MessageHeader) + header.sessionTokenLength + header.payloadSize;
+    if (data.size() < requiredSize) {
         return nullptr;
     }
 
     // Create a new message
-    auto message = std::make_unique<Message>();
+    auto message = std::make_unique<Message>(header.type);
     message->m_header = header;
 
-    // Extract payload
+    size_t offset = sizeof(MessageHeader);
+
+    // Extract session token if present
+    if (header.sessionTokenLength > 0) {
+        message->m_sessionToken = std::string(reinterpret_cast<const char*>(data.data() + offset), header.sessionTokenLength);
+        offset += header.sessionTokenLength;
+    }
+
+    // Extract payload if present
     if (header.payloadSize > 0) {
         message->m_payload.resize(header.payloadSize);
-        std::copy(
-            data.begin() + sizeof(MessageHeader),
-            data.begin() + sizeof(MessageHeader) + header.payloadSize,
-            message->m_payload.begin()
-        );
+        std::memcpy(message->m_payload.data(), data.data() + offset, header.payloadSize);
     }
 
     return message;
@@ -107,89 +135,161 @@ std::unique_ptr<Message> Message::Deserialize(const std::vector<uint8_t>& data) 
 
 // HandshakeRequest implementations
 std::vector<uint8_t> HandshakeRequest::Serialize() const {
-    // Serialize each int separately to ensure consistent byte order
-    std::vector<uint8_t> result(sizeof(int) * 2);
+    // Calculate size: version (2 ints) + password length + password data
+    size_t totalSize = sizeof(int) * 2 + sizeof(uint32_t) + password.size();
+    std::vector<uint8_t> result(totalSize);
 
-    // Store major version
+    // Store version components
     int major = clientVersion[0];
-    std::memcpy(result.data(), &major, sizeof(int));
-
-    // Store minor version
     int minor = clientVersion[1];
+
+    std::memcpy(result.data(), &major, sizeof(int));
     std::memcpy(result.data() + sizeof(int), &minor, sizeof(int));
+
+    // Store password length
+    uint32_t passwordLength = static_cast<uint32_t>(password.size());
+    std::memcpy(result.data() + sizeof(int) * 2, &passwordLength, sizeof(uint32_t));
+
+    // Store password content
+    if (!password.empty()) {
+        std::copy(password.begin(), password.end(), result.begin() + sizeof(int) * 2 + sizeof(uint32_t));
+    }
 
     return result;
 }
 
 HandshakeRequest HandshakeRequest::Deserialize(const std::vector<uint8_t>& data) {
-    HandshakeRequest request;
-
-    // Check if we have enough data
-    if (data.size() >= sizeof(int) * 2) {
-        // Extract major version
-        int major;
-        std::memcpy(&major, data.data(), sizeof(int));
-
-        // Extract minor version
-        int minor;
-        std::memcpy(&minor, data.data() + sizeof(int), sizeof(int));
-
-        request.clientVersion[0] = major;
-        request.clientVersion[1] = minor;
+    if (data.size() < sizeof(int) * 2 + sizeof(uint32_t)) {
+        // For backward compatibility, if we only have version data, create request without password
+        if (data.size() >= sizeof(int) * 2) {
+            int major, minor;
+            std::memcpy(&major, data.data(), sizeof(int));
+            std::memcpy(&minor, data.data() + sizeof(int), sizeof(int));
+            HandshakeRequest request(std::array<int, 2>{major, minor});
+            return request;
+        }
+        throw std::runtime_error("Not enough data to deserialize HandshakeRequest");
     }
 
-    return request;
+    // Extract version components
+    int major, minor;
+    std::memcpy(&major, data.data(), sizeof(int));
+    std::memcpy(&minor, data.data() + sizeof(int), sizeof(int));
+
+    // Extract password length
+    uint32_t passwordLength;
+    std::memcpy(&passwordLength, data.data() + sizeof(int) * 2, sizeof(uint32_t));
+
+    // Check if we have enough data for the password
+    if (data.size() < sizeof(int) * 2 + sizeof(uint32_t) + passwordLength) {
+        throw std::runtime_error("Not enough data to deserialize HandshakeRequest password");
+    }
+
+    // Extract password content
+    std::string password;
+    if (passwordLength > 0) {
+        password = std::string(reinterpret_cast<const char*>(data.data() + sizeof(int) * 2 + sizeof(uint32_t)), passwordLength);
+    }
+
+    return HandshakeRequest(std::array<int, 2>{major, minor}, password);
 }
 
 // HandshakeResponse implementations
 std::vector<uint8_t> HandshakeResponse::Serialize() const {
-    // Calculate size: bool + string length + string data
-    size_t size = sizeof(bool) + sizeof(uint32_t) + message.size();
-    std::vector<uint8_t> result(size);
+    // Calculate size: bool + message length + message data + token length + token data + expiry seconds
+    size_t totalSize = sizeof(bool) + sizeof(uint32_t) + message.size() + sizeof(uint32_t) + sessionToken.size() + sizeof(int);
+    std::vector<uint8_t> result(totalSize);
 
-    // Copy accepted flag
-    std::memcpy(result.data(), &accepted, sizeof(bool));
+    size_t offset = 0;
 
-    // Copy message length
+    // Store accepted flag
+    std::memcpy(result.data() + offset, &accepted, sizeof(bool));
+    offset += sizeof(bool);
+
+    // Store message length
     uint32_t messageLength = static_cast<uint32_t>(message.size());
-    std::memcpy(result.data() + sizeof(bool), &messageLength, sizeof(uint32_t));
+    std::memcpy(result.data() + offset, &messageLength, sizeof(uint32_t));
+    offset += sizeof(uint32_t);
 
-    // Copy message
+    // Store message content
     if (!message.empty()) {
-        std::copy(message.begin(), message.end(), result.begin() + sizeof(bool) + sizeof(uint32_t));
+        std::memcpy(result.data() + offset, message.data(), message.size());
+        offset += message.size();
     }
+
+    // Store session token length
+    uint32_t tokenLength = static_cast<uint32_t>(sessionToken.size());
+    std::memcpy(result.data() + offset, &tokenLength, sizeof(uint32_t));
+    offset += sizeof(uint32_t);
+
+    // Store session token content
+    if (!sessionToken.empty()) {
+        std::memcpy(result.data() + offset, sessionToken.data(), sessionToken.size());
+        offset += sessionToken.size();
+    }
+
+    // Store expiry seconds
+    std::memcpy(result.data() + offset, &expirySeconds, sizeof(int));
 
     return result;
 }
 
 HandshakeResponse HandshakeResponse::Deserialize(const std::vector<uint8_t>& data) {
-    HandshakeResponse response;
-
-    // Check if data is large enough for the minimum size
     if (data.size() < sizeof(bool) + sizeof(uint32_t)) {
-        return response;
+        throw std::runtime_error("Not enough data to deserialize HandshakeResponse");
     }
 
+    size_t offset = 0;
+
     // Extract accepted flag
-    std::memcpy(&response.accepted, data.data(), sizeof(bool));
+    bool accepted;
+    std::memcpy(&accepted, data.data() + offset, sizeof(bool));
+    offset += sizeof(bool);
 
     // Extract message length
     uint32_t messageLength;
-    std::memcpy(&messageLength, data.data() + sizeof(bool), sizeof(uint32_t));
+    std::memcpy(&messageLength, data.data() + offset, sizeof(uint32_t));
+    offset += sizeof(uint32_t);
 
-    // Check if data is large enough for the message
-    if (data.size() >= sizeof(bool) + sizeof(uint32_t) + messageLength) {
-        // Extract message
-        response.message.resize(messageLength);
-        if (messageLength > 0) {
-            std::copy(
-                data.begin() + sizeof(bool) + sizeof(uint32_t),
-                data.begin() + sizeof(bool) + sizeof(uint32_t) + messageLength,
-                response.message.begin()
-            );
-        }
+    // Check if we have enough data for the message
+    if (data.size() < offset + messageLength) {
+        throw std::runtime_error("Not enough data to deserialize HandshakeResponse message");
     }
 
+    // Extract message content
+    std::string message;
+    if (messageLength > 0) {
+        message = std::string(reinterpret_cast<const char*>(data.data() + offset), messageLength);
+        offset += messageLength;
+    }
+
+    // Check if we have enough data for session token length
+    if (data.size() < offset + sizeof(uint32_t)) {
+        throw std::runtime_error("Not enough data to deserialize HandshakeResponse session token length");
+    }
+
+    // Extract session token length
+    uint32_t tokenLength;
+    std::memcpy(&tokenLength, data.data() + offset, sizeof(uint32_t));
+    offset += sizeof(uint32_t);
+
+    // Check if we have enough data for session token and expiry
+    if (data.size() < offset + tokenLength + sizeof(int)) {
+        throw std::runtime_error("Not enough data to deserialize HandshakeResponse session token and expiry");
+    }
+
+    // Extract session token content
+    std::string sessionToken;
+    if (tokenLength > 0) {
+        sessionToken = std::string(reinterpret_cast<const char*>(data.data() + offset), tokenLength);
+        offset += tokenLength;
+    }
+
+    // Extract expiry seconds
+    int expirySeconds;
+    std::memcpy(&expirySeconds, data.data() + offset, sizeof(int));
+
+    HandshakeResponse response(accepted, message, sessionToken, expirySeconds);
     return response;
 }
 
@@ -586,11 +686,16 @@ TCPServer::~TCPServer() {
 }
 
 bool TCPServer::Initialize() {
-    // For testing, just return true
+    // For testing, simulate successful initialization
+    m_listenSocket = 1; // Set to a valid socket value for testing
     return true;
 }
 
 bool TCPServer::Start() {
+    // Check if server was initialized first
+    if (m_listenSocket == INVALID_SOCKET) {
+        return false;
+    }
     m_running = true;
     return true;
 }
@@ -613,10 +718,8 @@ void TCPServer::BroadcastText(const std::string& text, SOCKET excludeSocket) {
 }
 
 std::vector<std::tuple<SOCKET, std::string, bool>> TCPServer::GetClientInfo() {
-    // For testing, return some mock clients
+    // For testing, return empty client list initially
     std::vector<std::tuple<SOCKET, std::string, bool>> clients;
-    clients.emplace_back(1, "192.168.1.1:12345", true);
-    clients.emplace_back(2, "192.168.1.2:54321", false);
     return clients;
 }
 
@@ -626,7 +729,7 @@ bool TCPServer::KickClient(SOCKET clientSocket) {
 }
 
 size_t TCPServer::GetClientCount() {
-    return 2; // For testing
+    return 0; // For testing, start with no clients
 }
 
 // CommandProcessor class implementations

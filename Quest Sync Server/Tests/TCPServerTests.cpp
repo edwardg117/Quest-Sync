@@ -76,7 +76,7 @@ TEST_F(TCPServerTest, BroadcastMessage) {
     EXPECT_TRUE(m_server->Initialize());
 
     // Create a test message
-    Message testMessage(MessageType::EVENT_NOTIFICATION, "Test payload");
+    Message testMessage(MessageType::UPDATE_QUEST, "Test payload");
 
     // Broadcast a message to all clients (this will do nothing in the test environment)
     m_server->BroadcastMessage(testMessage, INVALID_SOCKET);
@@ -238,9 +238,9 @@ TEST_F(TCPServerTest, DifferentMessageTypes) {
     std::vector<MessageType> messageTypes = {
         MessageType::HANDSHAKE_REQUEST,
         MessageType::HANDSHAKE_RESPONSE,
-        MessageType::AUTHENTICATION_REQUEST,
-        MessageType::AUTHENTICATION_RESPONSE,
-        MessageType::EVENT_NOTIFICATION,
+        MessageType::SESSION_TOKEN_REQUEST,
+        MessageType::SESSION_TOKEN_RESPONSE,
+        MessageType::UPDATE_QUEST,
         MessageType::HEARTBEAT,
         MessageType::DISCONNECT
     };
@@ -344,7 +344,7 @@ TEST_F(TCPServerTest, LargeMessage) {
 
     // Create large message payload
     std::string largePayload(10000, 'A'); // 10KB of 'A' characters
-    Message largeMessage(MessageType::EVENT_NOTIFICATION, largePayload);
+    Message largeMessage(MessageType::UPDATE_QUEST, largePayload);
 
     // Should handle large messages gracefully
     m_server->SendToClient(1, largeMessage);
@@ -356,7 +356,7 @@ TEST_F(TCPServerTest, MessageWithSessionToken) {
     EXPECT_TRUE(m_server->Initialize());
 
     // Create message with session token
-    Message tokenMessage(MessageType::AUTHENTICATION_REQUEST, "test_session_token_12345", true);
+    Message tokenMessage(MessageType::SESSION_TOKEN_REQUEST, "test_session_token_12345", true);
 
     // Should handle session token messages gracefully
     m_server->SendToClient(1, tokenMessage);
