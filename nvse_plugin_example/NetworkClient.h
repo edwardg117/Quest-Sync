@@ -217,15 +217,19 @@ private:
     MessageReceivedCallback m_messageCallback;
     ConnectionStatusCallback m_connectionCallback;
 
+public:
+    // Session management methods (used by NetworkManager)
+    void CheckSessionTokenExpiry();
+    bool ProcessSessionTokenResponse(const Message& message);
+
+private:
     // Private methods
     void ReceiveThreadFunction();
     bool SendHandshake();
     bool ProcessHandshakeResponse(const Message& message);
     bool ProcessReceivedData(std::vector<uint8_t>& data);
     bool ProcessReceivedData(char* buffer, int bytesReceived);
-    void CheckSessionTokenExpiry();
     bool RequestSessionTokenRefresh();
-    bool ProcessSessionTokenResponse(const Message& message);
     bool ShouldAddSessionToken(MessageType messageType) const;
     std::string GetCurrentSessionToken() const;
 };

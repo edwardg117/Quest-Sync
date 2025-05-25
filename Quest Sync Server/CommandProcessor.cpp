@@ -715,11 +715,31 @@ bool CommandProcessor::HandleConfig(const std::vector<std::string>& args) {
         // Security settings
         std::cout << "Security:" << std::endl;
         std::cout << "  EnableAuthentication = " << config.GetBool("Security.EnableAuthentication", false) << std::endl;
+        std::cout << "  Password = " << (config.GetString("Security.Password", "").empty() ? "(empty)" : "(set)") << std::endl;
         std::cout << "  AllowedIPs = " << config.GetString("Security.AllowedIPs", "") << std::endl;
+        std::cout << "  SessionTokenExpiry = " << config.GetInt("Security.SessionTokenExpiry", 3600) << std::endl;
+        std::cout << "  RateLimitEnabled = " << config.GetBool("Security.RateLimitEnabled", true) << std::endl;
+        std::cout << "  RateLimitAttempts = " << config.GetInt("Security.RateLimitAttempts", 5) << std::endl;
+        std::cout << "  RateLimitWindow = " << config.GetInt("Security.RateLimitWindow", 300) << std::endl;
 
         // Performance settings
         std::cout << "Performance:" << std::endl;
         std::cout << "  HeartbeatInterval = " << config.GetInt("Performance.HeartbeatInterval", 5) << std::endl;
+
+        // Command Interface settings
+        std::cout << "CommandInterface:" << std::endl;
+        std::cout << "  Enabled = " << config.GetBool("CommandInterface.Enabled", true) << std::endl;
+
+        // Validate configuration and show warnings
+        std::cout << std::endl;
+        bool authEnabled = config.GetBool("Security.EnableAuthentication", false);
+        std::string password = config.GetString("Security.Password", "");
+
+        if (authEnabled && password.empty()) {
+            std::cout << "WARNING: Authentication is enabled but no password is set!" << std::endl;
+            std::cout << "         Clients will not be able to connect until a password is configured." << std::endl;
+            std::cout << "         Use: config Security.Password <your_password>" << std::endl;
+        }
 
         return true;
     }

@@ -998,7 +998,7 @@ bool NetworkClient::ProcessHandshakeResponse(const Message& message) {
                 }
 
                 // Show user-friendly error message
-                QueueUIMessage(userMessage, 2);
+                QueueUIMessage(userMessage.c_str(), 2, NULL, NULL, 2.0f, false);
 
                 Disconnect();
                 return false;
@@ -1474,8 +1474,10 @@ bool NetworkClient::ShouldAddSessionToken(MessageType messageType) const {
 
 // Get the current session token
 std::string NetworkClient::GetCurrentSessionToken() const {
-    std::lock_guard<std::mutex> lock(m_sessionMutex);
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_sessionMutex));
     return m_sessionToken;
 }
+
+
 
 

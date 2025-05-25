@@ -288,6 +288,16 @@ int main(int argc, char* argv[]) {
                 LOG_WARNING("Configuration file is missing some default settings");
                 LOG_INFO("Missing settings will be added with default values");
             }
+
+            // Validate authentication configuration
+            bool authEnabled = config.GetBool("Security.EnableAuthentication", false);
+            std::string password = config.GetString("Security.Password", "");
+
+            if (authEnabled && password.empty()) {
+                LOG_WARNING("Authentication is enabled but no password is set!");
+                LOG_WARNING("Clients will not be able to connect until a password is configured.");
+                LOG_WARNING("Use the 'config Security.Password <your_password>' command to set a password.");
+            }
         }
         catch (const std::exception& e) {
             LOG_CRITICAL("Exception during configuration loading: " + std::string(e.what()));
